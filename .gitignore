@@ -20,4 +20,4 @@ config/top_genomes/
 target/.training_cp.txt
 __pycache__/
 *.pyc
-training/__pycache__/
+training/__pycache__/bot/boss2

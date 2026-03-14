@@ -13,11 +13,261 @@
 #include <deque>
 #include <cstring>
 #include <chrono>
-#include <cassert>
-#include <unordered_set>
+#include <fstream>
 #include <unordered_map>
 
 using namespace std;
+
+// =============================================================
+// TUNABLE PARAMETERS (all evaluation weights in one struct)
+// =============================================================
+struct Params {
+    // Core evaluation - length difference
+    double LEN_WEIGHT = 160.0;
+    double LEN_WEIGHT_SMALL = 200.0;
+    double LEN_WEIGHT_WINNING_LATE = 280.0;
+    double LEN_WEIGHT_LOSING_LATE = 100.0;
+
+    // Apple pursuit / growth
+    double GROWTH_BASE = 220.0;
+    double SCARCITY_MULT_LOW = 2.5;    // <=2 apples
+    double SCARCITY_MULT_MED = 2.0;    // <=5 apples
+    double SCARCITY_MULT_HIGH = 1.5;   // <=10 apples
+    double VORONOI_APPLE_CLEAR = 1.2;
+    double VORONOI_APPLE_SLIGHT = 0.8;
+    double VORONOI_APPLE_CONTESTED = 0.4;
+    double VORONOI_APPLE_LOSE = -0.5;
+    double VORONOI_APPLE_TIE_LOSE = -0.5;
+    double EAT_BONUS = 15000.0;
+
+    // Voronoi territory
+    double TERRITORY_WEIGHT = 0.5;
+    double TERRITORY_WEIGHT_SMALL = 1.5;
+    double TERRITORY_WEIGHT_SMALL_LATE = 3.0;
+    double TERRITORY_WEIGHT_WINNING_LATE = 1.5;
+    double ENERGY_CONTROL_WEIGHT = 40.0;
+    double CLOSEST_ENERGY_WEIGHT = 80.0;
+    double CLOSEST_ENERGY_FALLBACK = 40.0;
+    double NO_ENERGY_PEN = -50.0;
+
+    // Safety / trap detection
+    double TRAP_SEVERE = -120.0;       // per cell deficit when reach < len
+    double TRAP_MILD = -15.0;          // per cell deficit when reach < 2*len
+    double TRAP_MULT_SMALL = 2.0;
+    double TRAP_MULT_TINY = 3.0;
+    double OPP_TRAP_BONUS = 60.0;
+    double OPP_TRAP_BONUS_SMALL = 100.0;
+    double LOG_SPACE_BONUS = 1.5;
+    double SPACE_GOOD = 50.0;
+    double SPACE_BAD = -60.0;
+
+    // Valid moves penalty
+    double NO_MOVES_PEN = -200.0;
+    double NO_MOVES_PEN_SMALL = -400.0;
+    double ONE_MOVE_PEN = -50.0;
+    double ONE_MOVE_PEN_SMALL = -100.0;
+    double TWO_MOVES_PEN_SMALL = -20.0;
+
+    // Head collision
+    double HEAD_CLOSE_SMALLER = -80.0;
+    double HEAD_CLOSE_SMALLER_SMALL = -200.0;
+    double HEAD_CLOSE_BIGGER = 15.0;
+    double HEAD_CLOSE_BIGGER_SMALL = 30.0;
+    double HEAD_NEAR_SMALLER = -20.0;
+    double HEAD_NEAR_SMALLER_SMALL = -80.0;
+    double HEAD_NEAR_LINE_SMALL = -40.0;
+
+    // Edge penalties
+    double EDGE_X = -15.0;
+    double EDGE_Y = -10.0;
+    double CORNER_EXTRA = -25.0;
+
+    // Gravity
+    double GRAVITY_RISK_NONE = -300.0;
+    double GRAVITY_RISK_HIGH = -30.0;
+    double GRAVITY_RISK_LOW = -10.0;
+    double GRAVITY_DEATH = -500.0;
+    double GRAVITY_EXPLOIT = 0.5;
+    double GRAVITY_EXPLOIT_FALL_DEATH = 200.0;
+    double GRAVITY_EXPLOIT_FALL_FAR = 15.0;
+    double GRAVITY_RISK_SMALL = 0.8;
+    double GRAVITY_RISK_LARGE = 0.5;
+
+    // Anti-stall / anti-trampoline (CRITICAL FIX: was -50000!)
+    double ANTI_TRAMPOLINE = -1200.0;
+    double STALL_REVISIT = -2000.0;
+
+    // Alive count
+    double ALIVE_EARLY = 120.0;
+    double ALIVE_MID = 80.0;
+    double ALIVE_LATE = 40.0;
+    double ALIVE_WINNING_MULT = 1.5;
+    double ALIVE_SMALL_MULT = 1.3;
+
+    // Tail chase
+    double TAIL_DEFAULT = 5.0;
+    double TAIL_WINNING = 40.0;
+    double TAIL_NO_FOOD = 35.0;
+    double TAIL_NO_VORONOI = 30.0;
+    double TAIL_SMALL_MULT = 1.5;
+
+    // Short snake penalty
+    double SHORT_3 = -150.0;
+    double SHORT_3_SMALL = -250.0;
+    double SHORT_4 = -40.0;
+    double SHORT_4_SMALL = -80.0;
+
+    // Staircase bonus
+    double STAIRCASE = 8.0;
+
+    // Max len threat
+    double OPP_MAXLEN_THREAT = -20.0;
+
+    // Fast eval - apple pursuit
+    double FAST_APPLE_FALLBACK = 0.7;
+    double FAST_OPP_NEAR_APPLE = -60.0;
+    double FAST_TRAP_SEVERE = -180.0;
+    double FAST_TRAP_MILD = -25.0;
+    double FAST_TAIL_WINNING = 30.0;
+    double FAST_TAIL_NO_FOOD = 25.0;
+    double FAST_TAIL_DEFAULT = 5.0;
+    double FAST_TAIL_SMALL_MULT = 1.5;
+
+    // Greedy move heuristic
+    double GREEDY_APPLE_IMMEDIATE = 1000.0;
+    double GREEDY_APPLE_DIST = -10.0;
+    double GREEDY_SUPPORT = 5.0;
+    double GREEDY_UP_PEN = -2.0;
+    double GREEDY_BLOCKED_PEN = -500.0;
+    double GREEDY_HEAD_COLL_PEN = -100.0;
+    double GREEDY_HEAD_COLL_PEN_SMALL = -200.0;
+    double GREEDY_HEAD_COLL_BONUS = 30.0;
+    double GREEDY_TRAPPED_PEN = -300.0;
+    double GREEDY_TRAPPED_MILD_PEN = -50.0;
+
+    // Beam search sizing
+    int BEAM_WIDTH_TINY = 100;
+    int BEAM_DEPTH_TINY = 8;
+    int BEAM_COMBO_TINY = 20;
+    int BEAM_WIDTH_SMALL = 150;
+    int BEAM_DEPTH_SMALL = 7;
+    int BEAM_COMBO_SMALL = 24;
+    int BEAM_WIDTH_FEW = 180;
+    int BEAM_DEPTH_FEW = 6;
+    int BEAM_COMBO_FEW = 27;
+    int BEAM_WIDTH_MED = 120;
+    int BEAM_DEPTH_MED = 5;
+    int BEAM_COMBO_MED = 18;
+    int BEAM_WIDTH_MANY = 70;
+    int BEAM_DEPTH_MANY = 4;
+    int BEAM_COMBO_MANY = 12;
+    int OPP_COMBO_LIMIT = 9;
+    int OPP_COMBO_LIMIT_SMALL = 12;
+
+    double BEAM_TRAPPED_PEN = -5000.0;
+};
+
+static Params P;
+
+static bool loadParamsJson(const string& filename) {
+    ifstream f(filename);
+    if (!f.is_open()) return false;
+
+    unordered_map<string, double*> k = {
+        {"LEN_WEIGHT", &P.LEN_WEIGHT}, {"LEN_WEIGHT_SMALL", &P.LEN_WEIGHT_SMALL},
+        {"LEN_WEIGHT_WINNING_LATE", &P.LEN_WEIGHT_WINNING_LATE},
+        {"LEN_WEIGHT_LOSING_LATE", &P.LEN_WEIGHT_LOSING_LATE},
+        {"GROWTH_BASE", &P.GROWTH_BASE},
+        {"SCARCITY_MULT_LOW", &P.SCARCITY_MULT_LOW}, {"SCARCITY_MULT_MED", &P.SCARCITY_MULT_MED},
+        {"SCARCITY_MULT_HIGH", &P.SCARCITY_MULT_HIGH},
+        {"VORONOI_APPLE_CLEAR", &P.VORONOI_APPLE_CLEAR},
+        {"VORONOI_APPLE_SLIGHT", &P.VORONOI_APPLE_SLIGHT},
+        {"VORONOI_APPLE_CONTESTED", &P.VORONOI_APPLE_CONTESTED},
+        {"VORONOI_APPLE_LOSE", &P.VORONOI_APPLE_LOSE},
+        {"VORONOI_APPLE_TIE_LOSE", &P.VORONOI_APPLE_TIE_LOSE},
+        {"EAT_BONUS", &P.EAT_BONUS},
+        {"TERRITORY_WEIGHT", &P.TERRITORY_WEIGHT},
+        {"TERRITORY_WEIGHT_SMALL", &P.TERRITORY_WEIGHT_SMALL},
+        {"TERRITORY_WEIGHT_SMALL_LATE", &P.TERRITORY_WEIGHT_SMALL_LATE},
+        {"TERRITORY_WEIGHT_WINNING_LATE", &P.TERRITORY_WEIGHT_WINNING_LATE},
+        {"ENERGY_CONTROL_WEIGHT", &P.ENERGY_CONTROL_WEIGHT},
+        {"CLOSEST_ENERGY_WEIGHT", &P.CLOSEST_ENERGY_WEIGHT},
+        {"CLOSEST_ENERGY_FALLBACK", &P.CLOSEST_ENERGY_FALLBACK},
+        {"NO_ENERGY_PEN", &P.NO_ENERGY_PEN},
+        {"TRAP_SEVERE", &P.TRAP_SEVERE}, {"TRAP_MILD", &P.TRAP_MILD},
+        {"TRAP_MULT_SMALL", &P.TRAP_MULT_SMALL}, {"TRAP_MULT_TINY", &P.TRAP_MULT_TINY},
+        {"OPP_TRAP_BONUS", &P.OPP_TRAP_BONUS}, {"OPP_TRAP_BONUS_SMALL", &P.OPP_TRAP_BONUS_SMALL},
+        {"LOG_SPACE_BONUS", &P.LOG_SPACE_BONUS},
+        {"SPACE_GOOD", &P.SPACE_GOOD}, {"SPACE_BAD", &P.SPACE_BAD},
+        {"NO_MOVES_PEN", &P.NO_MOVES_PEN}, {"NO_MOVES_PEN_SMALL", &P.NO_MOVES_PEN_SMALL},
+        {"ONE_MOVE_PEN", &P.ONE_MOVE_PEN}, {"ONE_MOVE_PEN_SMALL", &P.ONE_MOVE_PEN_SMALL},
+        {"TWO_MOVES_PEN_SMALL", &P.TWO_MOVES_PEN_SMALL},
+        {"HEAD_CLOSE_SMALLER", &P.HEAD_CLOSE_SMALLER},
+        {"HEAD_CLOSE_SMALLER_SMALL", &P.HEAD_CLOSE_SMALLER_SMALL},
+        {"HEAD_CLOSE_BIGGER", &P.HEAD_CLOSE_BIGGER},
+        {"HEAD_CLOSE_BIGGER_SMALL", &P.HEAD_CLOSE_BIGGER_SMALL},
+        {"HEAD_NEAR_SMALLER", &P.HEAD_NEAR_SMALLER},
+        {"HEAD_NEAR_SMALLER_SMALL", &P.HEAD_NEAR_SMALLER_SMALL},
+        {"HEAD_NEAR_LINE_SMALL", &P.HEAD_NEAR_LINE_SMALL},
+        {"EDGE_X", &P.EDGE_X}, {"EDGE_Y", &P.EDGE_Y}, {"CORNER_EXTRA", &P.CORNER_EXTRA},
+        {"GRAVITY_RISK_NONE", &P.GRAVITY_RISK_NONE},
+        {"GRAVITY_RISK_HIGH", &P.GRAVITY_RISK_HIGH},
+        {"GRAVITY_RISK_LOW", &P.GRAVITY_RISK_LOW},
+        {"GRAVITY_DEATH", &P.GRAVITY_DEATH},
+        {"GRAVITY_EXPLOIT", &P.GRAVITY_EXPLOIT},
+        {"GRAVITY_EXPLOIT_FALL_DEATH", &P.GRAVITY_EXPLOIT_FALL_DEATH},
+        {"GRAVITY_EXPLOIT_FALL_FAR", &P.GRAVITY_EXPLOIT_FALL_FAR},
+        {"GRAVITY_RISK_SMALL", &P.GRAVITY_RISK_SMALL},
+        {"GRAVITY_RISK_LARGE", &P.GRAVITY_RISK_LARGE},
+        {"ANTI_TRAMPOLINE", &P.ANTI_TRAMPOLINE}, {"STALL_REVISIT", &P.STALL_REVISIT},
+        {"ALIVE_EARLY", &P.ALIVE_EARLY}, {"ALIVE_MID", &P.ALIVE_MID},
+        {"ALIVE_LATE", &P.ALIVE_LATE},
+        {"ALIVE_WINNING_MULT", &P.ALIVE_WINNING_MULT},
+        {"ALIVE_SMALL_MULT", &P.ALIVE_SMALL_MULT},
+        {"TAIL_DEFAULT", &P.TAIL_DEFAULT}, {"TAIL_WINNING", &P.TAIL_WINNING},
+        {"TAIL_NO_FOOD", &P.TAIL_NO_FOOD}, {"TAIL_NO_VORONOI", &P.TAIL_NO_VORONOI},
+        {"TAIL_SMALL_MULT", &P.TAIL_SMALL_MULT},
+        {"SHORT_3", &P.SHORT_3}, {"SHORT_3_SMALL", &P.SHORT_3_SMALL},
+        {"SHORT_4", &P.SHORT_4}, {"SHORT_4_SMALL", &P.SHORT_4_SMALL},
+        {"STAIRCASE", &P.STAIRCASE}, {"OPP_MAXLEN_THREAT", &P.OPP_MAXLEN_THREAT},
+        {"GREEDY_APPLE_IMMEDIATE", &P.GREEDY_APPLE_IMMEDIATE},
+        {"GREEDY_APPLE_DIST", &P.GREEDY_APPLE_DIST},
+        {"GREEDY_SUPPORT", &P.GREEDY_SUPPORT},
+        {"GREEDY_UP_PEN", &P.GREEDY_UP_PEN},
+        {"GREEDY_BLOCKED_PEN", &P.GREEDY_BLOCKED_PEN},
+        {"GREEDY_HEAD_COLL_PEN", &P.GREEDY_HEAD_COLL_PEN},
+        {"GREEDY_HEAD_COLL_PEN_SMALL", &P.GREEDY_HEAD_COLL_PEN_SMALL},
+        {"GREEDY_HEAD_COLL_BONUS", &P.GREEDY_HEAD_COLL_BONUS},
+        {"GREEDY_TRAPPED_PEN", &P.GREEDY_TRAPPED_PEN},
+        {"GREEDY_TRAPPED_MILD_PEN", &P.GREEDY_TRAPPED_MILD_PEN},
+        {"BEAM_TRAPPED_PEN", &P.BEAM_TRAPPED_PEN},
+    };
+
+    string line;
+    while (getline(f, line)) {
+        size_t colon = line.find(':');
+        if (colon == string::npos) continue;
+        string key = line.substr(0, colon);
+        string val = line.substr(colon + 1);
+        auto strip = [](string& s) {
+            string out;
+            out.reserve(s.size());
+            for (char c : s) {
+                if (c != ' ' && c != '\t' && c != '\n' && c != '\r' &&
+                    c != '"' && c != ',' && c != '{' && c != '}')
+                    out.push_back(c);
+            }
+            s.swap(out);
+        };
+        strip(key);
+        strip(val);
+        if (key.empty() || val.empty()) continue;
+        auto it = k.find(key);
+        if (it == k.end()) continue;
+        try { *(it->second) = stod(val); } catch (...) {}
+    }
+    return true;
+}
 
 // =============================================================
 // PERFORMANCE PRIMITIVES
@@ -33,9 +283,9 @@ inline int64_t elapsed(Clock::time_point t0) {
 // =============================================================
 constexpr int MAX_W = 50, MAX_H = 30, MAX_CELLS = MAX_W * MAX_H;
 int W, H;
-bool smallMap = false;   
-bool tinyMap = false;    
-int totalCells = 0;      
+bool smallMap = false;
+bool tinyMap = false;
+int totalCells = 0;
 
 struct Coord {
     int x, y;
@@ -52,14 +302,13 @@ struct Coord {
 };
 
 struct PH { size_t operator()(const Coord& p) const { return hash<int>()((p.x << 16) ^ p.y); } };
-using PS = unordered_set<Coord, PH>;
 
 const Coord DIRS[4] = {{0,-1},{0,1},{-1,0},{1,0}}; // UP DOWN LEFT RIGHT
 const string DIR_NAMES[4] = {"UP","DOWN","LEFT","RIGHT"};
 constexpr int DIR_UP = 0, DIR_DOWN = 1, DIR_LEFT = 2, DIR_RIGHT = 3;
 
 // =============================================================
-// BITBOARD
+// BITBOARD (FIX: misleading indentation in empty())
 // =============================================================
 constexpr int BW = (MAX_CELLS + 63) / 64;
 struct BitBoard {
@@ -83,7 +332,10 @@ struct BitBoard {
         int c = 0; for (int i = 0; i < BW; i++) c += __builtin_popcountll(w[i]); return c;
     }
     inline bool empty() const {
-        for (int i = 0; i < BW; i++) if (w[i]) return false; return true;
+        for (int i = 0; i < BW; i++) {
+            if (w[i]) return false;
+        }
+        return true;
     }
     inline void reset() { for (int i = 0; i < BW; i++) w[i] = 0; }
 };
@@ -159,12 +411,13 @@ struct State {
 };
 
 inline bool cellSupported(int x, int y, const BitBoard& walls, const BitBoard& apples, const BitBoard& blocked) {
-    if (y + 1 >= H) return true; 
+    if (y + 1 >= H) return true;
     Coord below(x, y + 1);
     return walls.tstC(below) || apples.tstC(below) || blocked.tstC(below);
 }
 
 void simulate(State& st, const int moves[]) {
+    // Phase 1: Move snakes
     for (int i = 0; i < st.nSnakes; i++) {
         Snake& sn = st.snakes[i];
         if (!sn.alive) continue;
@@ -176,30 +429,49 @@ void simulate(State& st, const int moves[]) {
         if (!willEat) sn.body.pop_back();
         sn.body.push_front(newHead);
     }
+    // Phase 2: Consume apples
     for (int i = 0; i < st.nSnakes; i++) {
         Snake& sn = st.snakes[i];
         if (!sn.alive) continue;
         if (sn.head().inBounds() && st.apples.tstC(sn.head()))
             st.apples.clrC(sn.head());
     }
+    // Phase 3: Collision detection (including head-to-head)
     bool toBehead[MAX_SNAKES] = {};
+    Coord heads[MAX_SNAKES];
+    for (int i = 0; i < st.nSnakes; i++) {
+        heads[i] = st.snakes[i].alive ? st.snakes[i].head() : Coord(-1, -1);
+    }
     for (int i = 0; i < st.nSnakes; i++) {
         Snake& sn = st.snakes[i];
         if (!sn.alive) continue;
-        Coord h = sn.head();
+        Coord h = heads[i];
         if (!h.inBounds()) { toBehead[i] = true; continue; }
         if (st.walls.tstC(h)) { toBehead[i] = true; continue; }
-        for (int j = 0; j < st.nSnakes && !toBehead[i]; j++) {
-            if (!st.snakes[j].alive) continue;
-            if (j == i) {
-                for (int k = 1; k < sn.len(); k++)
-                    if (sn.body[k] == h) { toBehead[i] = true; break; }
-            } else {
-                for (auto& p : st.snakes[j].body)
-                    if (p == h) { toBehead[i] = true; break; }
+        // Self-collision (body, not head)
+        for (int k = 1; k < sn.len(); k++) {
+            if (sn.body[k] == h) { toBehead[i] = true; break; }
+        }
+        if (toBehead[i]) continue;
+        // Collision with other snakes' bodies (not their heads)
+        for (int j = 0; j < st.nSnakes; j++) {
+            if (j == i || !st.snakes[j].alive) continue;
+            for (int k = 1; k < st.snakes[j].len(); k++) {
+                if (st.snakes[j].body[k] == h) { toBehead[i] = true; break; }
+            }
+            if (toBehead[i]) break;
+        }
+        if (toBehead[i]) continue;
+        // Head-to-head collision: die if opponent head is same cell and they're >= our size
+        for (int j = 0; j < st.nSnakes; j++) {
+            if (j == i || !st.snakes[j].alive) continue;
+            if (heads[j] == h && st.snakes[j].len() >= sn.len()) {
+                toBehead[i] = true;
+                break;
             }
         }
     }
+    // Phase 4: Apply beheading / death
     for (int i = 0; i < st.nSnakes; i++) {
         if (!toBehead[i]) continue;
         Snake& sn = st.snakes[i];
@@ -211,14 +483,21 @@ void simulate(State& st, const int moves[]) {
             sn.body.pop_front();
         }
     }
+    // Phase 5: Gravity (FIX: add max iteration limit of H+5)
     {
+        int maxGravityIter = H + 5;
+        int gravIter = 0;
         bool somethingFell = true;
-        while (somethingFell) {
+        while (somethingFell && gravIter < maxGravityIter) {
+            gravIter++;
             somethingFell = false;
             bool isAirborne[MAX_SNAKES] = {};
             bool isGrounded[MAX_SNAKES] = {};
-            for (int i = 0; i < st.nSnakes; i++)
-                if (st.snakes[i].alive) isAirborne[i] = true;
+            for (int i = 0; i < st.nSnakes; i++) {
+                if (st.snakes[i].alive) {
+                    isAirborne[i] = true;
+                }
+            }
             bool gotGrounded = true;
             while (gotGrounded) {
                 gotGrounded = false;
@@ -229,11 +508,15 @@ void simulate(State& st, const int moves[]) {
                     for (auto& c : sn.body) {
                         if (!c.inBounds()) continue;
                         Coord below(c.x, c.y + 1);
-                        if (below.y >= H || st.walls.tstC(below) || st.apples.tstC(below)) { grnd = true; break; }
+                        if (below.y >= H || st.walls.tstC(below) || st.apples.tstC(below)) {
+                            grnd = true;
+                            break;
+                        }
                         for (int gi = 0; gi < st.nSnakes; gi++) {
                             if (!isGrounded[gi]) continue;
-                            for (auto& gp : st.snakes[gi].body)
+                            for (auto& gp : st.snakes[gi].body) {
                                 if (gp == below) { grnd = true; break; }
+                            }
                             if (grnd) break;
                         }
                         if (grnd) break;
@@ -251,8 +534,9 @@ void simulate(State& st, const int moves[]) {
                 Snake& sn = st.snakes[i];
                 for (auto& c : sn.body) c.y++;
                 bool allOut = true;
-                for (auto& c : sn.body)
+                for (auto& c : sn.body) {
                     if (c.y < H) { allOut = false; break; }
+                }
                 if (allOut) sn.alive = false;
             }
         }
@@ -262,7 +546,7 @@ void simulate(State& st, const int moves[]) {
 }
 
 // =============================================================
-// FLOOD-FILL 1D (Rapide)
+// FLOOD-FILL (standard, no gravity)
 // =============================================================
 static int ff_visited[MAX_CELLS];
 static int ff_token = 0;
@@ -291,6 +575,9 @@ int floodFillCount(Coord src, const BitBoard& walls, const BitBoard& blocked) {
     return count;
 }
 
+// =============================================================
+// FLOOD-FILL WITH GRAVITY AWARENESS
+// =============================================================
 static int ffg_visited[MAX_H][MAX_W];
 static int ffg_token = 0;
 
@@ -308,7 +595,7 @@ int floodFillGravity(Coord src, const BitBoard& walls, const BitBoard& apples, c
         for (int d = 0; d < 4; d++) {
             int nx = c.x + DIRS[d].x, ny = c.y + DIRS[d].y;
             if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
-            
+
             Coord next(nx, ny);
             if (!walls.tstC(next) && !blocked.tstC(next)) {
                 if (ffg_visited[ny][nx] != ffg_token) {
@@ -344,7 +631,39 @@ int floodFillGravity(Coord src, const BitBoard& walls, const BitBoard& apples, c
 }
 
 // =============================================================
-// VORONOI AVEC BUCKET QUEUE
+// BFS APPLE DISTANCE (FIX: replace manhattan with proper BFS)
+// =============================================================
+static int bfs_dist[MAX_H][MAX_W];
+static int bfs_token = 0;
+
+int bfsAppleDist(Coord src, const BitBoard& walls, const BitBoard& blocked, const BitBoard& apples) {
+    if (!src.inBounds()) return INT_MAX;
+    bfs_token++;
+    Coord q[MAX_CELLS];
+    int qHead = 0, qTail = 0;
+    q[qTail++] = src;
+    bfs_dist[src.y][src.x] = bfs_token;
+    int dist[MAX_H][MAX_W];
+    dist[src.y][src.x] = 0;
+    while (qHead < qTail) {
+        Coord c = q[qHead++];
+        int cd = dist[c.y][c.x];
+        if (apples.tstC(c)) return cd;
+        for (int d = 0; d < 4; d++) {
+            Coord n = c + DIRS[d];
+            if (!n.inBounds()) continue;
+            if (bfs_dist[n.y][n.x] == bfs_token) continue;
+            if (walls.tstC(n) || blocked.tstC(n)) continue;
+            bfs_dist[n.y][n.x] = bfs_token;
+            dist[n.y][n.x] = cd + 1;
+            q[qTail++] = n;
+        }
+    }
+    return INT_MAX;
+}
+
+// =============================================================
+// VORONOI WITH BUCKET QUEUE (FIX: visited array to prevent double-counting)
 // =============================================================
 struct VoronoiResult {
     int territory[2] = {0, 0};
@@ -364,14 +683,13 @@ struct VBucket {
     inline void push(int x, int y, int si, int tether) {
         data.push_back((x) | (y << 8) | (si << 16) | (tether << 24));
     }
-    inline uint32_t pop(int& x, int& y, int& si, int& tether) {
+    inline void pop(int& x, int& y, int& si, int& tether) {
         uint32_t val = data.back();
         data.pop_back();
         x = val & 0xFF;
         y = (val >> 8) & 0xFF;
         si = (val >> 16) & 0xFF;
         tether = (val >> 24) & 0xFF;
-        return val;
     }
     inline bool empty() const { return data.empty(); }
     inline void reset() { data.clear(); }
@@ -382,38 +700,41 @@ VoronoiResult computeVoronoi(const State& st, const BitBoard& blocked, Coord app
     VoronoiResult vr;
     vr.nApples = nApples;
     fill(vr.closestEnergy, vr.closestEnergy + MAX_SNAKES, INT_MAX);
-    
+
     static int dist1[MAX_H][MAX_W];
     static int snake1[MAX_H][MAX_W];
     static int dist2[MAX_H][MAX_W];
     static int snake2[MAX_H][MAX_W];
-    
+    // FIX: visited array to prevent double-counting territory
+    static bool visited[MAX_H][MAX_W];
+
     for (int y = 0; y < H; y++) {
         for (int x = 0; x < W; x++) {
             dist1[y][x] = INT_MAX; snake1[y][x] = -1;
             dist2[y][x] = INT_MAX; snake2[y][x] = -1;
+            visited[y][x] = false;
         }
     }
-    
+
     int vmax_bucket = 0;
     int vmin_bucket = 0;
-    
+
     for (int i = 0; i < st.nSnakes; i++) {
         if (!st.snakes[i].alive) continue;
         Coord h = st.snakes[i].head();
-        if (h.inBounds()) vbuckets[0].push(h.x, h.y, i, 0); 
+        if (h.inBounds()) vbuckets[0].push(h.x, h.y, i, 0);
     }
-    
+
     while (vmin_bucket <= vmax_bucket) {
         if (vbuckets[vmin_bucket].empty()) {
             vmin_bucket++;
             continue;
         }
-        
+
         int cx, cy, si, tether;
         vbuckets[vmin_bucket].pop(cx, cy, si, tether);
         int cost = vmin_bucket;
-        
+
         bool dominated = false;
         if (cost < dist1[cy][cx]) {
             if (snake1[cy][cx] != si) {
@@ -428,10 +749,12 @@ VoronoiResult computeVoronoi(const State& st, const BitBoard& blocked, Coord app
         } else {
             dominated = true;
         }
-        
+
         if (dominated) continue;
-        
-        if (cost == dist1[cy][cx] && snake1[cy][cx] == si) {
+
+        // FIX: Only count territory on FIRST visit to each cell
+        if (!visited[cy][cx] && cost == dist1[cy][cx] && snake1[cy][cx] == si) {
+            visited[cy][cx] = true;
             int owner = st.snakes[si].owner;
             vr.territory[owner]++;
             vr.reachable[si]++;
@@ -441,7 +764,7 @@ VoronoiResult computeVoronoi(const State& st, const BitBoard& blocked, Coord app
                 vr.closestEnergy[si] = min(vr.closestEnergy[si], cost);
             }
         }
-        
+
         for (int d = 0; d < 4; d++) {
             int nx = cx + DIRS[d].x, ny = cy + DIRS[d].y;
             if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
@@ -452,14 +775,14 @@ VoronoiResult computeVoronoi(const State& st, const BitBoard& blocked, Coord app
             int nextTether = supported ? 0 : (tether + 1);
 
             if (nextTether < st.snakes[si].len()) {
-                int cDirect = cost + (supported ? 1 : 2); 
+                int cDirect = cost + (supported ? 1 : 2);
                 if (cDirect < dist2[ny][nx] || cDirect < dist1[ny][nx]) {
                     int bcost = min(cDirect, 4095);
-                    vbuckets[bcost].push(nx, ny, si, nextTether); 
+                    vbuckets[bcost].push(nx, ny, si, nextTether);
                     if (bcost > vmax_bucket) vmax_bucket = bcost;
                 }
-            } 
-            
+            }
+
             if (!supported) {
                 int fy = ny;
                 while (fy + 1 < H && !cellSupported(nx, fy + 1, st.walls, st.apples, blocked)) {
@@ -468,19 +791,19 @@ VoronoiResult computeVoronoi(const State& st, const BitBoard& blocked, Coord app
                 Coord bottom(nx, fy);
                 if (fy < H && !st.walls.tstC(bottom) && !blocked.tstC(bottom)) {
                     int fallDist = fy - ny;
-                    int cFall = cost + 1 + fallDist * 2; 
+                    int cFall = cost + 1 + fallDist * 2;
                     if (cFall < dist2[fy][nx] || cFall < dist1[fy][nx]) {
                         int bcost = min(cFall, 4095);
-                        vbuckets[bcost].push(nx, fy, si, 0); 
+                        vbuckets[bcost].push(nx, fy, si, 0);
                         if (bcost > vmax_bucket) vmax_bucket = bcost;
                     }
                 }
             }
         }
     }
-    
-    for(int i = 0; i <= vmax_bucket; ++i) vbuckets[i].reset();
-    
+
+    for (int i = 0; i <= vmax_bucket; ++i) vbuckets[i].reset();
+
     for (int a = 0; a < nApples; a++) {
         Coord ap = appleList[a];
         if (!ap.inBounds()) continue;
@@ -510,8 +833,8 @@ double gravityExploitScore(const State& st, int myOwner, const BitBoard& blocked
                     fallDist++;
                 }
                 if (fp.y + 1 >= H && !cellSupported(fp.x, fp.y, st.walls, st.apples, blocked))
-                    score += 200.0; 
-                else if (fallDist >= 3) score += fallDist * 15.0;
+                    score += P.GRAVITY_EXPLOIT_FALL_DEATH;
+                else if (fallDist >= 3) score += fallDist * P.GRAVITY_EXPLOIT_FALL_FAR;
             }
         }
     }
@@ -520,16 +843,56 @@ double gravityExploitScore(const State& st, int myOwner, const BitBoard& blocked
 
 int validMovesSafe(const State& st, int si, const BitBoard& blocked, int out[]);
 
+// FIX: removed unused 'blocked' parameter
+double headCollisionPenalty(const State& st, int si) {
+    const Snake& sn = st.snakes[si];
+    if (!sn.alive) return 0;
+    Coord h = sn.head();
+    if (!h.inBounds()) return 0;
+    double penalty = 0;
+    for (int j = 0; j < st.nSnakes; j++) {
+        if (j == si || !st.snakes[j].alive || st.snakes[j].owner == sn.owner) continue;
+        Coord oh = st.snakes[j].head();
+        if (!oh.inBounds()) continue;
+        int hd = h.manhattan(oh);
+        int myLen = sn.len(), oppLen = st.snakes[j].len();
+
+        if (hd <= 1) {
+            if (myLen <= oppLen) penalty += (smallMap ? P.HEAD_CLOSE_SMALLER_SMALL : P.HEAD_CLOSE_SMALLER);
+            else penalty += (smallMap ? P.HEAD_CLOSE_BIGGER_SMALL : P.HEAD_CLOSE_BIGGER);
+        } else if (hd == 2) {
+            if (myLen <= oppLen) penalty += (smallMap ? P.HEAD_NEAR_SMALLER_SMALL : P.HEAD_NEAR_SMALLER);
+            if (smallMap && (h.x == oh.x || h.y == oh.y) && myLen <= oppLen)
+                penalty += P.HEAD_NEAR_LINE_SMALL;
+        }
+    }
+    return penalty;
+}
+
+double edgePenalty(Coord h) {
+    if (!h.inBounds()) return 0;
+    double pen = 0;
+    int dx = min(h.x, W - 1 - h.x);
+    int dy = min(h.y, H - 1 - h.y);
+    if (smallMap) {
+        if (dx == 0) pen += P.EDGE_X;
+        if (dy == 0) pen += P.EDGE_Y;
+        if (dx == 0 && dy == 0) pen += P.CORNER_EXTRA;
+    }
+    return pen;
+}
+
 double snakeGravityRisk(const Snake& sn, const BitBoard& walls, const BitBoard& apples, const BitBoard& blocked) {
     if (!sn.alive) return 0;
     Coord h = sn.head();
-    if (!h.inBounds()) return -300.0;
+    if (!h.inBounds()) return P.GRAVITY_RISK_NONE;
 
     bool anySupported = false;
     for (auto& c : sn.body) {
         if (!c.inBounds()) continue;
         if (cellSupported(c.x, c.y, walls, apples, blocked)) {
-            anySupported = true; break;
+            anySupported = true;
+            break;
         }
     }
     if (anySupported) return 0;
@@ -547,100 +910,64 @@ double snakeGravityRisk(const Snake& sn, const BitBoard& walls, const BitBoard& 
         if (fy + 1 >= H && !cellSupported(c.x, fy, walls, apples, blocked)) fall = 100;
         minFall = min(minFall, fall);
     }
-    if (minFall >= 100) return -500.0;
-    if (minFall >= 3) return -minFall * 30.0;
-    return -minFall * 10.0;
-}
-
-double headCollisionPenalty(const State& st, int si, const BitBoard& blocked) {
-    const Snake& sn = st.snakes[si];
-    if (!sn.alive) return 0;
-    Coord h = sn.head();
-    if (!h.inBounds()) return 0;
-    double penalty = 0;
-    for (int j = 0; j < st.nSnakes; j++) {
-        if (j == si || !st.snakes[j].alive || st.snakes[j].owner == sn.owner) continue;
-        Coord oh = st.snakes[j].head();
-        if (!oh.inBounds()) continue;
-        int hd = h.manhattan(oh);
-        int myLen = sn.len(), oppLen = st.snakes[j].len();
-        
-        if (hd <= 1) {
-            if (myLen <= oppLen) penalty -= (smallMap ? 200.0 : 80.0);
-            else penalty += (smallMap ? 30.0 : 15.0);
-        } else if (hd == 2) {
-            if (myLen <= oppLen) penalty -= (smallMap ? 80.0 : 20.0);
-            if (smallMap && (h.x == oh.x || h.y == oh.y) && myLen <= oppLen)
-                penalty -= 40.0;
-        }
-    }
-    return penalty;
-}
-
-double edgePenalty(Coord h) {
-    if (!h.inBounds()) return 0;
-    double pen = 0;
-    int dx = min(h.x, W - 1 - h.x);
-    int dy = min(h.y, H - 1 - h.y);
-    if (smallMap) {
-        if (dx == 0) pen -= 15.0;
-        if (dy == 0) pen -= 10.0;
-        if (dx == 0 && dy == 0) pen -= 25.0;
-    }
-    return pen;
+    if (minFall >= 100) return P.GRAVITY_DEATH;
+    if (minFall >= 3) return -minFall * P.GRAVITY_RISK_HIGH;
+    return -minFall * P.GRAVITY_RISK_LOW;
 }
 
 // =============================================================
-// EVALUATION FUNCTION
+// EVALUATION FUNCTION (all weights from Params, fixed anti-trampoline)
 // =============================================================
-double evaluate(const State& st, int myOwner, bool fast = false, const State* initSt = nullptr, double stallUrgency = 1.0, const map<int, deque<Coord>>* hist = nullptr) {
+double evaluate(const State& st, int myOwner, bool fast = false,
+                const State* initSt = nullptr, double stallUrgency = 1.0,
+                const map<int, deque<Coord>>* hist = nullptr) {
     int opp = 1 - myOwner;
     int myAlive = st.aliveCount(myOwner);
     int oppAlive = st.aliveCount(opp);
-    
+
     if (myAlive == 0 && oppAlive == 0) return 0;
     if (myAlive == 0) return -1e6;
     if (oppAlive == 0 && myAlive > 0) return 1e5 + st.scoreFor(myOwner) * 100.0;
-    
+
     int myLen = st.scoreFor(myOwner);
     int oppLen = st.scoreFor(opp);
     int turnsLeft = 200 - st.turn;
     double score = 0;
-    double phase = (turnsLeft > 140) ? 0.0 : ((turnsLeft > 60) ? (140.0 - turnsLeft) / 80.0 : 1.0);
+    // Smooth phase calculation (0=early, 1=late)
+    double phase = max(0.0, min(1.0, (200.0 - turnsLeft - 60.0) / 80.0));
     int lenDiff = myLen - oppLen;
     bool winning = lenDiff > 2;
     bool losing = lenDiff < -2;
-    
-    double lenWeight = 150.0;
-    if (smallMap) lenWeight = 200.0; 
-    if (phase > 0.5 && winning) lenWeight = (smallMap ? 300.0 : 250.0);
-    if (phase > 0.7 && losing) lenWeight = 100.0;
+
+    double lenWeight = smallMap ? P.LEN_WEIGHT_SMALL : P.LEN_WEIGHT;
+    if (phase > 0.5 && winning) lenWeight = P.LEN_WEIGHT_WINNING_LATE;
+    if (phase > 0.7 && losing) lenWeight = P.LEN_WEIGHT_LOSING_LATE;
     score += lenDiff * lenWeight;
 
-    // --- FIX: ANTI-TRAMPOLINE ET ANTI-STALLING GLOBAL ---
+    // --- ANTI-TRAMPOLINE AND GROWTH (FIX: was -50000, now parameterized) ---
     if (initSt != nullptr) {
         for (int i = 0; i < st.nSnakes; i++) {
             if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
-            
-            // Rebondit sur place
+
+            // Anti-trampoline: penalize staying in place
             if (st.snakes[i].head() == initSt->snakes[i].head()) {
-                score -= 50000.0; 
+                score += P.ANTI_TRAMPOLINE;
             }
-            
-            // Manger = Bonus
+
+            // Eating bonus
             int lenDelta = st.snakes[i].len() - initSt->snakes[i].len();
             if (lenDelta > 0) {
-                score += lenDelta * 15000.0 * stallUrgency; 
+                score += lenDelta * P.EAT_BONUS * stallUrgency;
             }
-            
-            // ANTI-STALLING: Interdit de repasser sur une des 6 dernières positions !
+
+            // Anti-stalling: penalize revisiting recent positions
             if (hist != nullptr) {
                 Coord h = st.snakes[i].head();
                 auto it = hist->find(st.snakes[i].id);
                 if (it != hist->end()) {
                     for (const auto& past_h : it->second) {
                         if (h == past_h) {
-                            score -= 2000.0 * stallUrgency;
+                            score += P.STALL_REVISIT * stallUrgency;
                             break;
                         }
                     }
@@ -649,41 +976,47 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
         }
     }
 
-    Coord appleList[200]; int nApples = 0;
+    Coord appleList[200];
+    int nApples = 0;
     for (int y = 0; y < H && nApples < 200; y++)
         for (int x = 0; x < W && nApples < 200; x++)
             if (st.apples.tstC({x, y})) appleList[nApples++] = {x, y};
-            
-    double scarcityMult = (nApples <= 2) ? 2.5 : (nApples <= 5) ? 2.0 : (nApples <= 10) ? 1.5 : 1.0;
+
+    double scarcityMult = (nApples <= 2) ? P.SCARCITY_MULT_LOW :
+                          (nApples <= 5) ? P.SCARCITY_MULT_MED :
+                          (nApples <= 10) ? P.SCARCITY_MULT_HIGH : 1.0;
     if (smallMap && scarcityMult < 1.5) scarcityMult = 1.5;
     double advantageMult = (myAlive > oppAlive) ? 1.0 + 0.3 * (myAlive - oppAlive) : 1.0;
     double aggressionMult = (phase > 0.6 && winning) ? 0.6 : ((phase > 0.5 && losing) ? 1.5 : 1.0);
-    
-    double growthWeight = 200.0 * scarcityMult * advantageMult * aggressionMult * stallUrgency;
-    
+
+    double growthWeight = P.GROWTH_BASE * scarcityMult * advantageMult * aggressionMult * stallUrgency;
+
     BitBoard bodyBrd = st.bodyBoardConst();
     BitBoard blocked = st.walls | bodyBrd;
-    
+
+    // Staircase bonus
     int staircases = 0;
     BitBoard myBrd;
-    for(int i = 0; i < st.nSnakes; ++i) {
-        if(st.snakes[i].alive && st.snakes[i].owner == myOwner) {
-            for(auto& c : st.snakes[i].body) myBrd.setC(c);
+    for (int i = 0; i < st.nSnakes; ++i) {
+        if (st.snakes[i].alive && st.snakes[i].owner == myOwner) {
+            for (auto& c : st.snakes[i].body) myBrd.setC(c);
         }
     }
-    for(int i = 0; i < st.nSnakes; ++i) {
-        if(st.snakes[i].alive && st.snakes[i].owner == myOwner) {
-            for(auto& c : st.snakes[i].body) {
-                if(c.y + 1 < H && myBrd.tstC({c.x, c.y + 1})) staircases++;
+    for (int i = 0; i < st.nSnakes; ++i) {
+        if (st.snakes[i].alive && st.snakes[i].owner == myOwner) {
+            for (auto& c : st.snakes[i].body) {
+                if (c.y + 1 < H && myBrd.tstC({c.x, c.y + 1})) staircases++;
             }
         }
     }
-    score += staircases * 8.0;
+    score += staircases * P.STAIRCASE;
 
     if (fast) {
+        // Fast evaluation: use BFS apple distance instead of manhattan where feasible
         bool appleAssigned[200] = {};
         struct SnakeApple { int si; int ai; int dist; };
-        SnakeApple candidates[200 * MAX_SNAKES]; int nCand = 0;
+        SnakeApple candidates[200 * MAX_SNAKES];
+        int nCand = 0;
         bool snakeAssigned[MAX_SNAKES] = {};
         for (int i = 0; i < st.nSnakes; i++) {
             if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
@@ -694,7 +1027,9 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
                 candidates[nCand++] = {i, a, md};
             }
         }
-        sort(candidates, candidates + nCand, [](const SnakeApple& a, const SnakeApple& b) { return a.dist < b.dist; });
+        sort(candidates, candidates + nCand, [](const SnakeApple& a, const SnakeApple& b) {
+            return a.dist < b.dist;
+        });
         for (int ci = 0; ci < nCand; ci++) {
             auto& ca = candidates[ci];
             if (snakeAssigned[ca.si] || appleAssigned[ca.ai]) continue;
@@ -709,7 +1044,7 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
             if (!h.inBounds()) continue;
             int bestMD = INT_MAX;
             for (int a = 0; a < nApples; a++) bestMD = min(bestMD, h.manhattan(appleList[a]));
-            if (bestMD < INT_MAX) score += growthWeight * 0.7 / (1.0 + bestMD);
+            if (bestMD < INT_MAX) score += growthWeight * P.FAST_APPLE_FALLBACK / (1.0 + bestMD);
         }
         for (int i = 0; i < st.nSnakes; i++) {
             if (!st.snakes[i].alive || st.snakes[i].owner != opp) continue;
@@ -717,14 +1052,15 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
             if (!h.inBounds()) continue;
             int bestMD = INT_MAX;
             for (int a = 0; a < nApples; a++) bestMD = min(bestMD, h.manhattan(appleList[a]));
-            if (bestMD <= 3) score -= 60.0 / (1.0 + bestMD);
+            if (bestMD <= 3) score += P.FAST_OPP_NEAR_APPLE / (1.0 + bestMD);
         }
         for (int i = 0; i < st.nSnakes; i++) {
             if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
-            int safeMoves[4]; int nSafe = validMovesSafe(st, i, blocked, safeMoves);
-            if (nSafe == 0) score -= (smallMap ? 500.0 : 300.0);
-            else if (nSafe == 1) score -= (smallMap ? 150.0 : 80.0);
-            else if (nSafe == 2 && smallMap) score -= 30.0;
+            int safeMoves[4];
+            int nSafe = validMovesSafe(st, i, blocked, safeMoves);
+            if (nSafe == 0) score += (smallMap ? P.NO_MOVES_PEN_SMALL : P.NO_MOVES_PEN);
+            else if (nSafe == 1) score += (smallMap ? P.ONE_MOVE_PEN_SMALL : P.ONE_MOVE_PEN);
+            else if (nSafe == 2 && smallMap) score += P.TWO_MOVES_PEN_SMALL;
         }
         if (smallMap) {
             for (int i = 0; i < st.nSnakes; i++) {
@@ -733,8 +1069,8 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
                 if (!h.inBounds()) continue;
                 int reachable = floodFillCount(h, st.walls, blocked);
                 int snLen = st.snakes[i].len();
-                if (reachable < snLen) score -= (snLen - reachable + 1) * 180.0;
-                else if (reachable < snLen * 2) score -= (snLen * 2 - reachable) * 25.0;
+                if (reachable < snLen) score += (snLen - reachable + 1) * P.FAST_TRAP_SEVERE;
+                else if (reachable < snLen * 2) score += (snLen * 2 - reachable) * P.FAST_TRAP_MILD;
             }
         }
         for (int i = 0; i < st.nSnakes; i++) {
@@ -743,18 +1079,20 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
             Coord t = st.snakes[i].tail();
             if (!h.inBounds() || !t.inBounds()) continue;
             int tailDist = h.manhattan(t);
-            double tailWeight = (phase > 0.6 && winning) ? 30.0 : ((nApples == 0) ? 25.0 : 5.0);
-            if (smallMap) tailWeight *= 1.5; 
+            double tailWeight = (phase > 0.6 && winning) ? P.FAST_TAIL_WINNING :
+                                ((nApples == 0) ? P.FAST_TAIL_NO_FOOD : P.FAST_TAIL_DEFAULT);
+            if (smallMap) tailWeight *= P.FAST_TAIL_SMALL_MULT;
             if (tailDist > 0) score += tailWeight / (1.0 + tailDist);
         }
         if (smallMap) {
             for (int i = 0; i < st.nSnakes; i++) {
                 if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
-                score += headCollisionPenalty(st, i, blocked);
+                score += headCollisionPenalty(st, i);
                 score += edgePenalty(st.snakes[i].head());
             }
         }
     } else {
+        // Full evaluation with Voronoi + BFS apple distance
         VoronoiResult vr = computeVoronoi(st, blocked, appleList, nApples);
         for (int a = 0; a < nApples; a++) {
             auto& ai = vr.appleInfos[a];
@@ -764,16 +1102,18 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
             int secondOwner = (ai.secondSi >= 0) ? st.snakes[ai.secondSi].owner : -1;
 
             if (bestOwner == myOwner) {
-                if (ai.secondSi >= 0 && secondOwner == opp && ai.bestDist == ai.secondDist && st.snakes[ai.secondSi].len() >= st.snakes[ai.bestSi].len()) {
-                    score -= growthWeight * 0.5 / (1.0 + ai.bestDist); 
+                if (ai.secondSi >= 0 && secondOwner == opp &&
+                    ai.bestDist == ai.secondDist &&
+                    st.snakes[ai.secondSi].len() >= st.snakes[ai.bestSi].len()) {
+                    score += growthWeight * P.VORONOI_APPLE_TIE_LOSE / (1.0 + ai.bestDist);
                 } else if (ai.secondSi < 0 || ai.secondDist == INT_MAX || secondOwner == myOwner) {
-                    score += growthWeight * 1.2 / (1.0 + ai.bestDist);
+                    score += growthWeight * P.VORONOI_APPLE_CLEAR / (1.0 + ai.bestDist);
                 } else if (ai.bestDist < ai.secondDist - 1) {
                     score += growthWeight / (1.0 + ai.bestDist);
                 } else if (ai.bestDist < ai.secondDist) {
-                    score += growthWeight * 0.8 / (1.0 + ai.bestDist);
+                    score += growthWeight * P.VORONOI_APPLE_SLIGHT / (1.0 + ai.bestDist);
                 } else {
-                    score += growthWeight * 0.4 / (1.0 + ai.bestDist);
+                    score += growthWeight * P.VORONOI_APPLE_CONTESTED / (1.0 + ai.bestDist);
                 }
             } else {
                 if (ai.secondSi >= 0 && st.snakes[ai.secondSi].owner == myOwner) {
@@ -781,36 +1121,36 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
                     if (myDist < ai.bestDist + 2) {
                         score += growthWeight * 0.2 / (1.0 + myDist);
                     } else {
-                        score -= 20.0 / (1.0 + ai.bestDist);
+                        score += P.OPP_MAXLEN_THREAT / (1.0 + ai.bestDist);
                     }
                 } else {
-                    score -= 20.0 / (1.0 + ai.bestDist);
+                    score += P.OPP_MAXLEN_THREAT / (1.0 + ai.bestDist);
                 }
             }
         }
 
-        score += (vr.energyControl[myOwner] - vr.energyControl[opp]) * 40.0;
+        score += (vr.energyControl[myOwner] - vr.energyControl[opp]) * P.ENERGY_CONTROL_WEIGHT;
 
         for (int i = 0; i < st.nSnakes; i++) {
             if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
             if (vr.closestEnergy[i] < INT_MAX) {
-                score += 80.0 * scarcityMult * stallUrgency / (1.0 + vr.closestEnergy[i]);
+                score += P.CLOSEST_ENERGY_WEIGHT * scarcityMult * stallUrgency / (1.0 + vr.closestEnergy[i]);
             } else {
-                int bestMD = INT_MAX;
+                // Fallback: use BFS apple distance
                 Coord h = st.snakes[i].head();
-                for (int a = 0; a < nApples; a++) bestMD = min(bestMD, h.manhattan(appleList[a]));
-                if (bestMD < INT_MAX) {
-                    score += 40.0 * scarcityMult * stallUrgency / (1.0 + bestMD);
+                int bfsDist = bfsAppleDist(h, st.walls, blocked, st.apples);
+                if (bfsDist < INT_MAX) {
+                    score += P.CLOSEST_ENERGY_FALLBACK * scarcityMult * stallUrgency / (1.0 + bfsDist);
                 } else {
-                    score -= 50.0;
+                    score += P.NO_ENERGY_PEN;
                 }
             }
         }
 
-        double territoryWeight = (phase > 0.7 && winning) ? 1.5 : 0.5;
+        double territoryWeight = (phase > 0.7 && winning) ? P.TERRITORY_WEIGHT_WINNING_LATE : P.TERRITORY_WEIGHT;
         if (smallMap) {
-            territoryWeight = (phase > 0.5) ? 3.0 : 1.5;
-            if (tinyMap) territoryWeight *= 1.5; 
+            territoryWeight = (phase > 0.5) ? P.TERRITORY_WEIGHT_SMALL_LATE : P.TERRITORY_WEIGHT_SMALL;
+            if (tinyMap) territoryWeight *= 1.5;
             if (winning && phase > 0.5) territoryWeight *= 1.5;
         }
         score += (vr.territory[myOwner] - vr.territory[opp]) * territoryWeight;
@@ -819,20 +1159,20 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
             if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
             Coord h = st.snakes[i].head();
             if (!h.inBounds()) continue;
-            
+
             int reachable = floodFillCount(h, st.walls, blocked);
             int snLen = st.snakes[i].len();
-            double trapMultiplier = smallMap ? 2.0 : 1.0;
-            if (tinyMap) trapMultiplier = 3.0;
-            if (reachable < snLen) score -= (snLen - reachable + 1) * 120.0 * trapMultiplier;
-            else if (reachable < snLen * 2) score -= (snLen * 2 - reachable) * 15.0 * trapMultiplier;
-            else score += log(reachable + 1) * 1.5;
-            
+            double trapMultiplier = smallMap ? P.TRAP_MULT_SMALL : 1.0;
+            if (tinyMap) trapMultiplier = P.TRAP_MULT_TINY;
+            if (reachable < snLen) score += (snLen - reachable + 1) * P.TRAP_SEVERE * trapMultiplier;
+            else if (reachable < snLen * 2) score += (snLen * 2 - reachable) * P.TRAP_MILD * trapMultiplier;
+            else score += log(reachable + 1) * P.LOG_SPACE_BONUS;
+
             if (smallMap) {
-                int freeCells = totalCells; 
+                int freeCells = totalCells;
                 double spaceRatio = (double)reachable / max(1, freeCells);
-                if (spaceRatio > 0.5) score += 50.0; 
-                else if (spaceRatio < 0.2) score -= 60.0; 
+                if (spaceRatio > 0.5) score += P.SPACE_GOOD;
+                else if (spaceRatio < 0.2) score += P.SPACE_BAD;
             }
         }
 
@@ -840,9 +1180,9 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
             if (!st.snakes[i].alive || st.snakes[i].owner != opp) continue;
             Coord h = st.snakes[i].head();
             if (!h.inBounds()) continue;
-            int reachable = floodFillCount(h, st.walls, blocked); 
+            int reachable = floodFillCount(h, st.walls, blocked);
             int snLen = st.snakes[i].len();
-            double trapBonus = smallMap ? 100.0 : 60.0;
+            double trapBonus = smallMap ? P.OPP_TRAP_BONUS_SMALL : P.OPP_TRAP_BONUS;
             if (reachable < snLen) {
                 score += (snLen - reachable + 1) * trapBonus;
             }
@@ -854,21 +1194,23 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
             Coord t = st.snakes[i].tail();
             if (!h.inBounds() || !t.inBounds()) continue;
             int tailDist = h.manhattan(t);
-            double tailWeight = (phase > 0.6 && winning) ? 40.0 : ((nApples == 0) ? 35.0 : ((vr.closestEnergy[i] == INT_MAX) ? 30.0 : 5.0));
-            if (smallMap) tailWeight *= 1.5;
+            double tailWeight = (phase > 0.6 && winning) ? P.TAIL_WINNING :
+                                ((nApples == 0) ? P.TAIL_NO_FOOD :
+                                 ((vr.closestEnergy[i] == INT_MAX) ? P.TAIL_NO_VORONOI : P.TAIL_DEFAULT));
+            if (smallMap) tailWeight *= P.TAIL_SMALL_MULT;
             if (tailDist > 0) score += tailWeight / (1.0 + tailDist);
         }
-        score += gravityExploitScore(st, myOwner, blocked) * 0.5;
+        score += gravityExploitScore(st, myOwner, blocked) * P.GRAVITY_EXPLOIT;
         for (int i = 0; i < st.nSnakes; i++) {
             if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
-            score += headCollisionPenalty(st, i, blocked);
+            score += headCollisionPenalty(st, i);
             score += edgePenalty(st.snakes[i].head());
         }
     }
 
-    double aliveWeight = (phase < 0.3) ? 120.0 : ((phase < 0.7) ? 80.0 : 40.0);
-    if (winning && phase > 0.5) aliveWeight *= 1.5;
-    if (smallMap) aliveWeight *= 1.3; 
+    double aliveWeight = (phase < 0.3) ? P.ALIVE_EARLY : ((phase < 0.7) ? P.ALIVE_MID : P.ALIVE_LATE);
+    if (winning && phase > 0.5) aliveWeight *= P.ALIVE_WINNING_MULT;
+    if (smallMap) aliveWeight *= P.ALIVE_SMALL_MULT;
     score += (myAlive - oppAlive) * aliveWeight;
 
     int myMaxLen = 0, oppMaxLen = 0;
@@ -877,26 +1219,27 @@ double evaluate(const State& st, int myOwner, bool fast = false, const State* in
         if (st.snakes[i].owner == myOwner) myMaxLen = max(myMaxLen, st.snakes[i].len());
         else oppMaxLen = max(oppMaxLen, st.snakes[i].len());
     }
-    if (oppMaxLen > myMaxLen + 2) score -= (oppMaxLen - myMaxLen) * 20.0;
+    if (oppMaxLen > myMaxLen + 2) score += (oppMaxLen - myMaxLen) * P.OPP_MAXLEN_THREAT;
 
     for (int i = 0; i < st.nSnakes; i++) {
         if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
         double risk = snakeGravityRisk(st.snakes[i], st.walls, st.apples, blocked);
-        score += risk * (smallMap ? 0.8 : 0.5);
+        score += risk * (smallMap ? P.GRAVITY_RISK_SMALL : P.GRAVITY_RISK_LARGE);
     }
 
     for (int i = 0; i < st.nSnakes; i++) {
         if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
-        if (st.snakes[i].len() <= 3) score -= (smallMap ? 250.0 : 150.0);
-        else if (st.snakes[i].len() == 4) score -= (smallMap ? 80.0 : 40.0);
+        if (st.snakes[i].len() <= 3) score += (smallMap ? P.SHORT_3_SMALL : P.SHORT_3);
+        else if (st.snakes[i].len() == 4) score += (smallMap ? P.SHORT_4_SMALL : P.SHORT_4);
     }
 
     for (int i = 0; i < st.nSnakes; i++) {
         if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
-        int safeMoves[4]; int nSafe = validMovesSafe(st, i, blocked, safeMoves);
-        if (nSafe == 0) score -= (smallMap ? 400.0 : 200.0);
-        else if (nSafe == 1) score -= (smallMap ? 100.0 : 50.0);
-        else if (nSafe == 2 && smallMap) score -= 20.0;
+        int safeMoves[4];
+        int nSafe = validMovesSafe(st, i, blocked, safeMoves);
+        if (nSafe == 0) score += (smallMap ? P.NO_MOVES_PEN_SMALL : P.NO_MOVES_PEN);
+        else if (nSafe == 1) score += (smallMap ? P.ONE_MOVE_PEN_SMALL : P.ONE_MOVE_PEN);
+        else if (nSafe == 2 && smallMap) score += P.TWO_MOVES_PEN_SMALL;
     }
 
     return score;
@@ -913,7 +1256,9 @@ int validMovesCount(const State& st, int si, int out[]) {
         if (!nh.inBounds() || st.walls.tstC(nh)) continue;
         out[n++] = d;
     }
-    if (n == 0) { for (int d = 0; d < 4; d++) out[n++] = d; }
+    if (n == 0) {
+        for (int d = 0; d < 4; d++) out[n++] = d;
+    }
     return n;
 }
 
@@ -936,26 +1281,30 @@ int validMovesSafe(const State& st, int si, const BitBoard& blocked, int out[]) 
     }
     if (nSafe > 0) { for (int i = 0; i < nSafe; i++) out[i] = safe[i]; return nSafe; }
     if (nRisky > 0) { for (int i = 0; i < nRisky; i++) out[i] = risky[i]; return nRisky; }
-    int n = 0; for (int d = 0; d < 4; d++) out[n++] = d; return n;
+    int n = 0;
+    for (int d = 0; d < 4; d++) out[n++] = d;
+    return n;
 }
 
 int greedyMove(const State& st, int si, const BitBoard* preBlocked = nullptr) {
     BitBoard blocked;
     if (preBlocked) blocked = *preBlocked;
     else blocked = st.walls | st.bodyBoardConst();
-    
-    int moves[4]; int nm = validMovesSafe(st, si, blocked, moves);
+
+    int moves[4];
+    int nm = validMovesSafe(st, si, blocked, moves);
     if (nm == 0) return st.snakes[si].facing();
 
     Coord h = st.snakes[si].head();
     if (!h.inBounds()) return moves[0];
 
-    int bestMove = moves[0]; double bestScore = -1e9;
+    int bestMove = moves[0];
+    double bestScore = -1e9;
     for (int mi = 0; mi < nm; mi++) {
         Coord nh = h + DIRS[moves[mi]];
         double sc = 0;
 
-        if (nh.inBounds() && st.apples.tstC(nh)) sc += 1000;
+        if (nh.inBounds() && st.apples.tstC(nh)) sc += P.GREEDY_APPLE_IMMEDIATE;
 
         int bestMD = INT_MAX;
         for (int y = 0; y < H; y++)
@@ -964,31 +1313,33 @@ int greedyMove(const State& st, int si, const BitBoard* preBlocked = nullptr) {
                     int md = (nh.inBounds() ? nh.manhattan({x, y}) : 100);
                     bestMD = min(bestMD, md);
                 }
-        if (bestMD < INT_MAX) sc -= bestMD * 10;
+        if (bestMD < INT_MAX) sc += bestMD * P.GREEDY_APPLE_DIST;
 
         if (nh.inBounds()) {
-            if (cellSupported(nh.x, nh.y, st.walls, st.apples, blocked)) sc += 5.0;
-            if (moves[mi] == DIR_UP) sc -= 2.0;
+            if (cellSupported(nh.x, nh.y, st.walls, st.apples, blocked)) sc += P.GREEDY_SUPPORT;
+            if (moves[mi] == DIR_UP) sc += P.GREEDY_UP_PEN;
             if (smallMap) sc += edgePenalty(nh) * 0.3;
         }
 
-        if (nh.inBounds() && blocked.tstC(nh)) sc -= 500;
+        if (nh.inBounds() && blocked.tstC(nh)) sc += P.GREEDY_BLOCKED_PEN;
 
         for (int j = 0; j < st.nSnakes; j++) {
             if (j == si || !st.snakes[j].alive) continue;
             Coord oh = st.snakes[j].head();
             if (!oh.inBounds() || !nh.inBounds()) continue;
             int hd = nh.manhattan(oh);
-            if (hd <= 1 && st.snakes[si].len() <= st.snakes[j].len()) sc -= (smallMap ? 200 : 100);
-            if (hd <= 1 && st.snakes[si].len() > st.snakes[j].len() + 1) sc += 30;
+            if (hd <= 1 && st.snakes[si].len() <= st.snakes[j].len())
+                sc += (smallMap ? P.GREEDY_HEAD_COLL_PEN_SMALL : P.GREEDY_HEAD_COLL_PEN);
+            if (hd <= 1 && st.snakes[si].len() > st.snakes[j].len() + 1)
+                sc += P.GREEDY_HEAD_COLL_BONUS;
         }
 
         if (smallMap && nh.inBounds()) {
             BitBoard tmpBlk = blocked;
-            tmpBlk.setC(h); 
+            tmpBlk.setC(h);
             int reach = floodFillCount(nh, st.walls, tmpBlk);
-            if (reach < st.snakes[si].len()) sc -= 300;
-            else if (reach < st.snakes[si].len() * 2) sc -= 50;
+            if (reach < st.snakes[si].len()) sc += P.GREEDY_TRAPPED_PEN;
+            else if (reach < st.snakes[si].len() * 2) sc += P.GREEDY_TRAPPED_MILD_PEN;
         }
 
         if (sc > bestScore) { bestScore = sc; bestMove = moves[mi]; }
@@ -998,10 +1349,12 @@ int greedyMove(const State& st, int si, const BitBoard* preBlocked = nullptr) {
 
 int smartOppMove(const State& st, int si, const BitBoard& blocked) {
     int oppOwner = st.snakes[si].owner;
-    int moves[4]; int nm = validMovesSafe(st, si, blocked, moves);
+    int moves[4];
+    int nm = validMovesSafe(st, si, blocked, moves);
     if (nm <= 1) return (nm == 1) ? moves[0] : st.snakes[si].facing();
 
-    int bestMove = moves[0]; double bestScore = -1e9;
+    int bestMove = moves[0];
+    double bestScore = -1e9;
     for (int mi = 0; mi < nm; mi++) {
         State simSt = st;
         int allMoves[MAX_SNAKES] = {};
@@ -1015,7 +1368,7 @@ int smartOppMove(const State& st, int si, const BitBoard& blocked) {
 }
 
 // =============================================================
-// BEAM SEARCH
+// BEAM SEARCH (FIX: remove state overwrite, sort combos before truncating)
 // =============================================================
 struct BeamNode {
     State state;
@@ -1026,7 +1379,8 @@ struct BeamNode {
 static vector<BeamNode> beamA;
 static vector<BeamNode> beamB;
 
-vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, double stallUrgency, const map<int, deque<Coord>>& hist) {
+vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
+                       double stallUrgency, const map<int, deque<Coord>>& hist) {
     auto t0 = Clock::now();
     beamA.clear();
     beamB.clear();
@@ -1042,45 +1396,51 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
 
     int totalAlive = nMy + nOpp;
     int beamWidth, beamDepthMax, comboLimit;
-    
+
     if (smallMap) {
         if (tinyMap) {
-            beamWidth = 100; beamDepthMax = 8; comboLimit = 20;
+            beamWidth = P.BEAM_WIDTH_TINY; beamDepthMax = P.BEAM_DEPTH_TINY; comboLimit = P.BEAM_COMBO_TINY;
         } else {
-            beamWidth = 150; beamDepthMax = 7; comboLimit = 24;
+            beamWidth = P.BEAM_WIDTH_SMALL; beamDepthMax = P.BEAM_DEPTH_SMALL; comboLimit = P.BEAM_COMBO_SMALL;
         }
     } else if (totalAlive <= 4) {
-        beamWidth = 180; beamDepthMax = 6; comboLimit = 27;
+        beamWidth = P.BEAM_WIDTH_FEW; beamDepthMax = P.BEAM_DEPTH_FEW; comboLimit = P.BEAM_COMBO_FEW;
     } else if (totalAlive <= 6) {
-        beamWidth = 120; beamDepthMax = 5; comboLimit = 18;
+        beamWidth = P.BEAM_WIDTH_MED; beamDepthMax = P.BEAM_DEPTH_MED; comboLimit = P.BEAM_COMBO_MED;
     } else {
-        beamWidth = 70; beamDepthMax = 4; comboLimit = 12;
+        beamWidth = P.BEAM_WIDTH_MANY; beamDepthMax = P.BEAM_DEPTH_MANY; comboLimit = P.BEAM_COMBO_MANY;
     }
 
     BitBoard initBody = initSt.bodyBoardConst();
     BitBoard initBlocked = initSt.walls | initBody;
 
+    // Generate my move combos
     vector<vector<int>> combos = {{}};
     for (int mi = 0; mi < nMy; mi++) {
-        int moves[4]; int nm = validMovesSafe(initSt, myIdx[mi], initBlocked, moves);
+        int moves[4];
+        int nm = validMovesSafe(initSt, myIdx[mi], initBlocked, moves);
         vector<vector<int>> next;
         next.reserve(combos.size() * nm);
         for (auto& c : combos)
             for (int j = 0; j < nm; j++) {
-                auto nc = c; nc.push_back(moves[j]);
+                auto nc = c;
+                nc.push_back(moves[j]);
                 next.push_back(nc);
             }
         combos = next;
     }
 
+    // Generate opponent combos
+    int oppComboLimit = smallMap ? P.OPP_COMBO_LIMIT_SMALL : P.OPP_COMBO_LIMIT;
     vector<vector<int>> oppCombos = {{}};
-    int oppComboLimit = smallMap ? 12 : 9; 
     for (int oi = 0; oi < nOpp; oi++) {
-        int moves[4]; int nm = validMovesSafe(initSt, oppIdx[oi], initBlocked, moves);
+        int moves[4];
+        int nm = validMovesSafe(initSt, oppIdx[oi], initBlocked, moves);
         vector<vector<int>> next;
         for (auto& c : oppCombos)
             for (int j = 0; j < nm; j++) {
-                auto nc = c; nc.push_back(moves[j]);
+                auto nc = c;
+                nc.push_back(moves[j]);
                 next.push_back(nc);
             }
         oppCombos = next;
@@ -1089,7 +1449,7 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
     if ((int)oppCombos.size() > oppComboLimit) {
         int defaultOppMoves[MAX_SNAKES];
         bool useSmart = (nOpp <= 2 && elapsed(t0) < budgetMs / 3);
-        if (smallMap) useSmart = true; 
+        if (smallMap) useSmart = true;
         for (int oi = 0; oi < nOpp; oi++) {
             if (useSmart)
                 defaultOppMoves[oi] = smartOppMove(initSt, oppIdx[oi], initBlocked);
@@ -1112,14 +1472,17 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
     bool useFullEval = (int)combos.size() * (int)oppCombos.size() <= 300 || smallMap;
     bool useMinimax = (int)oppCombos.size() > 1 && elapsed(t0) < budgetMs - 20;
 
+    // Consistent timeout threshold
+    constexpr int64_t TIMEOUT_MARGIN = 8;
+
     for (auto& combo : combos) {
-        if (elapsed(t0) > budgetMs - 12) break;
+        if (elapsed(t0) > budgetMs - TIMEOUT_MARGIN) break;
 
         double worstScore = 1e9;
 
         if (useMinimax) {
             for (auto& oppCombo : oppCombos) {
-                if (elapsed(t0) > budgetMs - 12) break;
+                if (elapsed(t0) > budgetMs - TIMEOUT_MARGIN) break;
 
                 State simSt = initSt;
                 int allMoves[MAX_SNAKES] = {};
@@ -1144,7 +1507,18 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
         }
 
         BeamNode node;
-        node.state = initSt;
+        // FIX: Store the simulated state, not initSt (removes state overwrite bug)
+        {
+            State simSt = initSt;
+            int allMoves[MAX_SNAKES] = {};
+            for (int i = 0; i < initSt.nSnakes; i++) allMoves[i] = -1;
+            for (int i = 0; i < nMy; i++) allMoves[myIdx[i]] = combo[i];
+            // Use greedy opponent for the state that gets propagated
+            for (int i = 0; i < nOpp; i++)
+                allMoves[oppIdx[i]] = greedyMove(initSt, oppIdx[i], &initBlocked);
+            simulate(simSt, allMoves);
+            node.state = simSt;
+        }
         for (int i = 0; i < nMy; i++) node.firstMoves[myIdx[i]] = combo[i];
         node.score = worstScore;
         beamA.push_back(node);
@@ -1155,20 +1529,8 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
     });
     if ((int)beamA.size() > beamWidth) beamA.resize(beamWidth);
 
-    {
-        int oppMoves[MAX_SNAKES];
-        for (int oi = 0; oi < nOpp; oi++)
-            oppMoves[oi] = greedyMove(initSt, oppIdx[oi], &initBlocked);
-
-        for (auto& node : beamA) {
-            node.state = initSt;
-            int allMoves[MAX_SNAKES] = {};
-            for (int i = 0; i < initSt.nSnakes; i++) allMoves[i] = -1;
-            for (int i = 0; i < nMy; i++) allMoves[myIdx[i]] = node.firstMoves[myIdx[i]];
-            for (int i = 0; i < nOpp; i++) allMoves[oppIdx[i]] = oppMoves[i];
-            simulate(node.state, allMoves);
-        }
-    }
+    // FIX: Removed the state overwrite block that was here (lines 1158-1171 of original)
+    // States are now properly simulated in the loop above.
 
     if (!useFullEval && elapsed(t0) < budgetMs - 25) {
         int reEvalCount = min((int)beamA.size(), 25);
@@ -1180,12 +1542,10 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
         });
     }
 
-    int reachedDepth = 1;
-
     for (int depth = 1; depth < beamDepthMax; depth++) {
-        if (elapsed(t0) > budgetMs - 8) break; // Hard exit check
+        if (elapsed(t0) > budgetMs - TIMEOUT_MARGIN) break;
         beamB.clear();
-        
+
         bool timeout = false;
         int evalCount = 0;
 
@@ -1206,25 +1566,48 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
 
             vector<vector<int>> cCombos = {{}};
             for (int mi = 0; mi < cNMy; mi++) {
-                int mv[4]; int nm = validMovesSafe(node.state, cMyIdx[mi], nodeBlocked, mv);
+                int mv[4];
+                int nm = validMovesSafe(node.state, cMyIdx[mi], nodeBlocked, mv);
                 vector<vector<int>> next;
                 for (auto& c : cCombos)
                     for (int j = 0; j < nm; j++) {
-                        auto nc = c; nc.push_back(mv[j]);
+                        auto nc = c;
+                        nc.push_back(mv[j]);
                         next.push_back(nc);
                     }
                 cCombos = next;
-                if ((int)cCombos.size() > comboLimit) break;
+                if ((int)cCombos.size() > comboLimit * 2) break;
             }
-            if ((int)cCombos.size() > comboLimit) cCombos.resize(comboLimit);
+            // FIX: Sort combos by quick heuristic before truncating
+            if ((int)cCombos.size() > comboLimit) {
+                vector<pair<double, int>> scored(cCombos.size());
+                for (int ci = 0; ci < (int)cCombos.size(); ci++) {
+                    double sc = 0;
+                    for (int mi = 0; mi < cNMy && mi < (int)cCombos[ci].size(); mi++) {
+                        Coord nh = node.state.snakes[cMyIdx[mi]].head() + DIRS[cCombos[ci][mi]];
+                        if (nh.inBounds() && node.state.apples.tstC(nh)) sc += 1000;
+                        if (nh.inBounds() && !nodeBlocked.tstC(nh)) sc += 10;
+                        if (nh.inBounds() && cellSupported(nh.x, nh.y, node.state.walls, node.state.apples, nodeBlocked)) sc += 5;
+                    }
+                    scored[ci] = {sc, ci};
+                }
+                sort(scored.begin(), scored.end(), [](const pair<double,int>& a, const pair<double,int>& b) {
+                    return a.first > b.first;
+                });
+                vector<vector<int>> best;
+                best.reserve(comboLimit);
+                for (int ci = 0; ci < comboLimit; ci++) {
+                    best.push_back(cCombos[scored[ci].second]);
+                }
+                cCombos = best;
+            }
 
             int cOppMv[MAX_SNAKES];
             for (int i = 0; i < cNOpp; i++)
                 cOppMv[i] = greedyMove(node.state, cOppIdx[i]);
 
             for (auto& combo : cCombos) {
-                // FIX TIMEOUT: Frequent micro-checks
-                if ((evalCount++ & 15) == 0 && elapsed(t0) > budgetMs - 5) {
+                if ((evalCount++ & 15) == 0 && elapsed(t0) > budgetMs - TIMEOUT_MARGIN) {
                     timeout = true;
                     break;
                 }
@@ -1241,13 +1624,13 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
                     allMv[cOppIdx[i]] = cOppMv[i];
 
                 simulate(child.state, allMv);
-                
+
                 child.score = evaluate(child.state, myOwner, true, &initSt, stallUrgency, &hist);
                 beamB.push_back(child);
             }
         }
 
-        if (timeout || beamB.empty()) break; 
+        if (timeout || beamB.empty()) break;
 
         sort(beamB.begin(), beamB.end(), [](const BeamNode& a, const BeamNode& b) {
             return a.score > b.score;
@@ -1255,7 +1638,6 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
         if ((int)beamB.size() > beamWidth) beamB.resize(beamWidth);
 
         beamA.swap(beamB);
-        reachedDepth = depth + 1;
     }
 
     if (beamA.empty()) {
@@ -1275,7 +1657,7 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs, doubl
                 int reach = floodFillCount(h, node.state.walls, nb);
                 if (reach < node.state.snakes[i].len()) { trapped = true; break; }
             }
-            if (trapped) node.score -= 5000.0;
+            if (trapped) node.score += P.BEAM_TRAPPED_PEN;
         }
         sort(beamA.begin(), beamA.end(), [](const BeamNode& a, const BeamNode& b) {
             return a.score > b.score;
@@ -1348,7 +1730,14 @@ void printMap(const State& st, ostream& os = cerr) {
 // =============================================================
 // MAIN
 // =============================================================
-int main() {
+int main(int argc, char* argv[]) {
+    // Load config if provided
+    for (int i = 1; i < argc; i++) {
+        string arg = argv[i];
+        if (arg == "--config" && i + 1 < argc) {
+            loadParamsJson(argv[++i]);
+        }
+    }
     ios_base::sync_with_stdio(false);
     cin.tie(nullptr);
 
