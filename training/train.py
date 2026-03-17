@@ -52,6 +52,8 @@ def parse_args():
                         help="Path to a genome JSON to use as seed")
     parser.add_argument("--output", type=str, default=None,
                         help="Output path for best genome (default: config/optimized_params.json)")
+    parser.add_argument("--league-level", type=int, default=None,
+                        help="League level to use during training (default: engine default)")
     return parser.parse_args()
 
 
@@ -80,7 +82,7 @@ def build_referee():
     print("Referee built successfully.")
 
 
-def evaluate_population(ga, opponents, matches_per_opponent, parallel, match_seeds):
+def evaluate_population(ga, opponents, matches_per_opponent, parallel, match_seeds, league_level):
     """Evaluate all genomes in the population."""
     total = len(ga.population)
     for idx, genome in enumerate(ga.population):
@@ -91,6 +93,7 @@ def evaluate_population(ga, opponents, matches_per_opponent, parallel, match_see
             matches_per_opponent=matches_per_opponent,
             seeds=match_seeds,
             parallel=(parallel > 1),
+            league_level=league_level,
         )
         print(f"fitness={genome.fitness:.2f} ({genome})")
 
@@ -139,6 +142,7 @@ def main():
     print(f"  Elite count:          {args.elite}")
     print(f"  Mutation rate:        {args.mutation_rate}")
     print(f"  Mutation strength:    {args.mutation_strength}")
+    print(f"  League level:         {args.league_level if args.league_level is not None else 'engine default'}")
     print(f"  Output:               {output_path}")
     print("=" * 60)
 
@@ -184,7 +188,14 @@ def main():
         print(f"{'='*60}")
 
         # Evaluate population
-        evaluate_population(ga, opponents, args.matches, args.parallel, match_seeds)
+        evaluate_population(
+            ga,
+            opponents,
+            args.matches,
+            args.parallel,
+            match_seeds,
+            args.league_level,
+        )
 
         # Print stats
         ga.print_stats()
