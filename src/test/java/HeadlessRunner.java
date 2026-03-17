@@ -6,7 +6,7 @@ import com.codingame.gameengine.runner.simulate.GameResult;
  * Runs a match between two bots and outputs scores to stdout.
  *
  * Usage:
- *   java HeadlessRunner "command1" "command2" [seed]
+ *   java HeadlessRunner "command1" "command2" [seed] [leagueLevel]
  *
  * Output format (stdout):
  *   SCORES score0 score1
@@ -14,13 +14,14 @@ import com.codingame.gameengine.runner.simulate.GameResult;
 public class HeadlessRunner {
     public static void main(String[] args) {
         if (args.length < 2) {
-            System.err.println("Usage: HeadlessRunner <bot1_command> <bot2_command> [seed]");
+            System.err.println("Usage: HeadlessRunner <bot1_command> <bot2_command> [seed] [leagueLevel]");
             System.exit(1);
         }
 
         String bot1 = args[0];
         String bot2 = args[1];
         Long seed = null;
+        Integer leagueLevel = null;
         if (args.length >= 3) {
             try {
                 seed = Long.parseLong(args[2]);
@@ -29,11 +30,22 @@ public class HeadlessRunner {
                 System.exit(1);
             }
         }
+        if (args.length >= 4) {
+            try {
+                leagueLevel = Integer.parseInt(args[3]);
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid league level: " + args[3]);
+                System.exit(1);
+            }
+        }
 
         try {
             MultiplayerGameRunner runner = new MultiplayerGameRunner();
             if (seed != null) {
                 runner.setSeed(seed);
+            }
+            if (leagueLevel != null) {
+                runner.setLeagueLevel(leagueLevel);
             }
             runner.addAgent(bot1, "Player 1");
             runner.addAgent(bot2, "Player 2");

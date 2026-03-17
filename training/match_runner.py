@@ -43,7 +43,7 @@ def _get_classpath():
     return f"{classes}:{test_classes}:{deps}"
 
 
-def run_single_match(bot1_cmd, bot2_cmd, seed=None, timeout=120):
+def run_single_match(bot1_cmd, bot2_cmd, seed=None, league_level=None, timeout=120):
     """
     Run a single match between two bots using the Java headless runner.
 
@@ -57,6 +57,8 @@ def run_single_match(bot1_cmd, bot2_cmd, seed=None, timeout=120):
     java_args = ["java", "-cp", classpath, "HeadlessRunner", bot1_cmd, bot2_cmd]
     if seed is not None:
         java_args.append(str(seed))
+    if league_level is not None:
+        java_args.append(str(league_level))
 
     try:
         result = subprocess.run(
@@ -82,7 +84,14 @@ def run_single_match(bot1_cmd, bot2_cmd, seed=None, timeout=120):
         return -1, -1
 
 
-def evaluate_genome(genome, opponents, matches_per_opponent=2, seeds=None, parallel=False):
+def evaluate_genome(
+    genome,
+    opponents,
+    matches_per_opponent=2,
+    seeds=None,
+    parallel=False,
+    league_level=None,
+):
     """
     Evaluate a genome by running matches against a list of opponents.
 
@@ -111,9 +120,9 @@ def evaluate_genome(genome, opponents, matches_per_opponent=2, seeds=None, paral
             seed = seeds[i % len(seeds)] if seeds else random.randint(1, 2**31)
             # Alternate who plays first
             if i % 2 == 0:
-                match_args.append((bot_cmd, opp_cmd, seed))
+                match_args.append((bot_cmd, opp_cmd, seed, league_level))
             else:
-                match_args.append((opp_cmd, bot_cmd, seed))
+                match_args.append((opp_cmd, bot_cmd, seed, league_level))
 
     if parallel:
         results = _run_matches_parallel(match_args)
@@ -151,16 +160,16 @@ def evaluate_genome(genome, opponents, matches_per_opponent=2, seeds=None, paral
 def _run_matches_sequential(match_args):
     """Run matches one at a time."""
     results = []
-    for bot1_cmd, bot2_cmd, seed in match_args:
-        result = run_single_match(bot1_cmd, bot2_cmd, seed)
+    for bot1_cmd, bot2_cmd, seed, league_level in match_args:
+        result = run_single_match(bot1_cmd, bot2_cmd, seed, league_level)
         results.append(result)
     return results
 
 
 def _run_match_worker(args):
     """Worker function for parallel match execution."""
-    bot1_cmd, bot2_cmd, seed = args
-    return run_single_match(bot1_cmd, bot2_cmd, seed)
+    bot1_cmd, bot2_cmd, seed, league_level = args
+    return run_single_match(bot1_cmd, bot2_cmd, seed, league_level)
 
 
 def _run_matches_parallel(match_args, max_workers=4):

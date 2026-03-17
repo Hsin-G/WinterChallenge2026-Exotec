@@ -74,6 +74,7 @@ The bot can load them at runtime:
 | `--seed` | None | Random seed for reproducibility |
 | `--resume` | None | Path to genome JSON to seed population |
 | `--output` | config/optimized_params.json | Output path for best genome |
+| `--league-level` | engine default | League level to simulate during training |
 
 ## Genome Parameters
 
