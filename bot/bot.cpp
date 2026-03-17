@@ -37,109 +37,91 @@ using namespace std;
 // TUNABLE PARAMETERS
 // =============================================================
 struct Params {
-    // Core evaluation - length difference
-    double LEN_WEIGHT = 160.0;
-    double LEN_WEIGHT_SMALL = 200.0;
-    double LEN_WEIGHT_WINNING_LATE = 280.0;
-    double LEN_WEIGHT_LOSING_LATE = 100.0;
-
-    // Apple pursuit / growth
-    double GROWTH_BASE = 220.0;
-    double SCARCITY_MULT_LOW = 2.5;
-    double SCARCITY_MULT_MED = 2.0;
-    double SCARCITY_MULT_HIGH = 1.5;
-    double VORONOI_APPLE_CLEAR = 1.2;
-    double VORONOI_APPLE_SLIGHT = 0.8;
-    double VORONOI_APPLE_CONTESTED = 0.4;
-    double VORONOI_APPLE_LOSE = -5;
-    double VORONOI_APPLE_TIE_LOSE = -5;
-    double EAT_BONUS = 20000.0;
-
-    // Voronoi territory
-    double TERRITORY_WEIGHT = 1;
-    double TERRITORY_WEIGHT_SMALL = 1.5;
-    double TERRITORY_WEIGHT_SMALL_LATE = 3.0;
-    double TERRITORY_WEIGHT_WINNING_LATE = 1.5;
-    double ENERGY_CONTROL_WEIGHT = 40.0;
-    double CLOSEST_ENERGY_WEIGHT = 80.0;
-    double CLOSEST_ENERGY_FALLBACK = 40.0;
-    double NO_ENERGY_PEN = -50.0;
-
-    // Safety / trap detection
-    double TRAP_SEVERE = -120.0;
-    double TRAP_MILD = -15.0;
-    double TRAP_MULT_SMALL = 2.0;
-    double TRAP_MULT_TINY = 3.0;
-    double OPP_TRAP_BONUS = 60.0;
-    double OPP_TRAP_BONUS_SMALL = 100.0;
-    double LOG_SPACE_BONUS = 1.5;
-    double SPACE_GOOD = 50.0;
-    double SPACE_BAD = -60.0;
-
-    // Valid moves penalty
-    double NO_MOVES_PEN = -200.0;
-    double NO_MOVES_PEN_SMALL = -400.0;
-    double ONE_MOVE_PEN = -50.0;
-    double ONE_MOVE_PEN_SMALL = -100.0;
-    double TWO_MOVES_PEN_SMALL = -20.0;
-
-    // NEW: Mobility bonus per safe move above 2
-    double MOBILITY_BONUS = 3.0;
-
-    // Head collision
-    double HEAD_CLOSE_SMALLER = -800.0;
-    double HEAD_CLOSE_SMALLER_SMALL = -200.0;
-    double HEAD_CLOSE_BIGGER = 50.0;
-    double HEAD_CLOSE_BIGGER_SMALL = 30.0;
-    double HEAD_NEAR_SMALLER = -20.0;
-    double HEAD_NEAR_SMALLER_SMALL = -80.0;
-    double HEAD_NEAR_LINE_SMALL = -40.0;
-
-    // Edge penalties
-    double EDGE_X = -15.0;
-    double EDGE_Y = -10.0;
-    double CORNER_EXTRA = -25.0;
-
-    // Gravity
-    double GRAVITY_RISK_NONE = -300.0;
-    double GRAVITY_RISK_HIGH = -30.0;
-    double GRAVITY_RISK_LOW = -10.0;
-    double GRAVITY_DEATH = -500.0;
-    double GRAVITY_EXPLOIT = 1;
-    double GRAVITY_EXPLOIT_FALL_DEATH = 200.0;
-    double GRAVITY_EXPLOIT_FALL_FAR = 15.0;
-    double GRAVITY_RISK_SMALL = 0.8;
-    double GRAVITY_RISK_LARGE = 0.5;
-
-    // Anti-stall
-    double ANTI_TRAMPOLINE = -1200.0;
-    double STALL_REVISIT = -2000.0;
-
-    // Alive count
-    double ALIVE_EARLY = 120.0;
-    double ALIVE_MID = 80.0;
-    double ALIVE_LATE = 40.0;
-    double ALIVE_WINNING_MULT = 1.5;
-    double ALIVE_SMALL_MULT = 1.3;
-
-    // Tail chase
-    double TAIL_DEFAULT = 5.0;
-    double TAIL_WINNING = 40.0;
-    double TAIL_NO_FOOD = 35.0;
-    double TAIL_NO_VORONOI = 30.0;
-    double TAIL_SMALL_MULT = 1.5;
-
-    // Short snake penalty
-    double SHORT_3 = -150.0;
-    double SHORT_3_SMALL = -250.0;
-    double SHORT_4 = -40.0;
-    double SHORT_4_SMALL = -80.0;
-
-    // Staircase bonus
-    double STAIRCASE = 8.0;
-
-    // Max len threat
-    double OPP_MAXLEN_THREAT = -20.0;
+    double  LEN_WEIGHT = 457.3133350029462;
+    double  LEN_WEIGHT_SMALL = 263.570566770072;
+    double  LEN_WEIGHT_WINNING_LATE = 228.4158070514701;
+    double  LEN_WEIGHT_LOSING_LATE = 10.0;
+    double  GROWTH_BASE = 1189.0495475070675;
+    double  SCARCITY_MULT_LOW = 2.2425750856786824;
+    double  SCARCITY_MULT_MED = 3.2054082232915246;
+    double  SCARCITY_MULT_HIGH = 0.9663350619237547;
+    double  VORONOI_APPLE_CLEAR = 0.0;
+    double  VORONOI_APPLE_SLIGHT = 3.3117347245236908;
+    double  VORONOI_APPLE_CONTESTED = -5.0;
+    double  VORONOI_APPLE_LOSE = -46.95677224910253;
+    double  VORONOI_APPLE_TIE_LOSE = -51.62087811623487;
+    double  EAT_BONUS = 5532.866746106523;
+    double  TERRITORY_WEIGHT = 0.0;
+    double  TERRITORY_WEIGHT_SMALL = 4.92962952963947;
+    double  TERRITORY_WEIGHT_SMALL_LATE = 2.5978476430286728;
+    double  TERRITORY_WEIGHT_WINNING_LATE = 0.0;
+    double  ENERGY_CONTROL_WEIGHT = 182.790661418695;
+    double  CLOSEST_ENERGY_WEIGHT = 480.90345856374535;
+    double  CLOSEST_ENERGY_FALLBACK = 288.056908692045;
+    double  NO_ENERGY_PEN = -593.4846908293422;
+    double  TRAP_SEVERE = -241.24975710716672;
+    double  TRAP_MILD = -31.64429556058139;
+    double  TRAP_MULT_SMALL = 1.1253411818227617;
+    double  TRAP_MULT_TINY = 0.5;
+    double  OPP_TRAP_BONUS = 80.01643381848532;
+    double  OPP_TRAP_BONUS_SMALL = 30.188182553198146;
+    double  LOG_SPACE_BONUS = 5.491141384573997;
+    double  SPACE_GOOD = 0.0;
+    double  SPACE_BAD = -22.99969311238486;
+    double  NO_MOVES_PEN = -873.2919728330627;
+    double  NO_MOVES_PEN_SMALL = -1378.4303657760863;
+    double  ONE_MOVE_PEN = -291.6727302495658;
+    double  ONE_MOVE_PEN_SMALL = -362.31392071599794;
+    double  TWO_MOVES_PEN_SMALL = -200.0;
+    double  MOBILITY_BONUS = 8.45770604384502;
+    double  HEAD_CLOSE_SMALLER = 0.0;
+    double  HEAD_CLOSE_SMALLER_SMALL = -361.01782475686537;
+    double  HEAD_CLOSE_BIGGER = 302.4676004178366;
+    double  HEAD_CLOSE_BIGGER_SMALL = 245.73341217170815;
+    double  HEAD_NEAR_SMALLER = -139.73846154143638;
+    double  HEAD_NEAR_SMALLER_SMALL = -371.1270086836966;
+    double  HEAD_NEAR_LINE_SMALL = -286.114910810064;
+    double  EDGE_X = -30.359402004556202;
+    double  EDGE_Y = -67.62755429878855;
+    double  CORNER_EXTRA = -62.74405601646483;
+    double  GRAVITY_RISK_NONE = -1032.6456936622615;
+    double  GRAVITY_RISK_HIGH = 0.0;
+    double  GRAVITY_RISK_LOW = -60.510711765900155;
+    double  GRAVITY_DEATH = -1139.7147854056557;
+    double  GRAVITY_EXPLOIT = 0.9273449691876634;
+    double  GRAVITY_EXPLOIT_FALL_DEATH = 2000.0;
+    double  GRAVITY_EXPLOIT_FALL_FAR = 0.0;
+    double  GRAVITY_RISK_SMALL = 0.2803997744564303;
+    double  GRAVITY_RISK_LARGE = 0.38712481244517327;
+    double  ANTI_TRAMPOLINE = -9275.447106585632;
+    double  STALL_REVISIT = 0.0;
+    double  ALIVE_EARLY = 802.4477126936711;
+    double  ALIVE_MID = 380.55868439030746;
+    double  ALIVE_LATE = 0.0;
+    double  ALIVE_WINNING_MULT = 5.3017056649340235;
+    double  ALIVE_SMALL_MULT = 2.9668517594059756;
+    double  TAIL_DEFAULT = 0.0;
+    double  TAIL_WINNING = 143.06310927905696;
+    double  TAIL_NO_FOOD = 136.35681211716908;
+    double  TAIL_NO_VORONOI = 151.94405350111498;
+    double  TAIL_SMALL_MULT = 0.5741068372353455;
+    double  SHORT_3 = 0.0;
+    double  SHORT_3_SMALL = -726.752074670928;
+    double  SHORT_4 = -40.0;
+    double  SHORT_4_SMALL = -240.25416180301045;
+    double  STAIRCASE = 0.0;
+    double  OPP_MAXLEN_THREAT = -68.95669909410091;
+    double  GREEDY_APPLE_IMMEDIATE = 273.31622739675686;
+    double  GREEDY_APPLE_DIST = 0.0;
+    double  GREEDY_SUPPORT = 12.71657710321957;
+    double  GREEDY_UP_PEN = -2.441923052327346;
+    double  GREEDY_BLOCKED_PEN = -3516.9947484609197;
+    double  GREEDY_HEAD_COLL_PEN = -57.27985209956674;
+    double  GREEDY_HEAD_COLL_PEN_SMALL = -881.8180444417421;
+    double  GREEDY_HEAD_COLL_BONUS = 213.15665985823966;
+    double  GREEDY_TRAPPED_PEN = -348.9177994438942;
+    double  GREEDY_TRAPPED_MILD_PEN = -371.65825634712115;
+    double  BEAM_TRAPPED_PEN = -19527.636787742078;
 
     // Fast eval
     double FAST_APPLE_FALLBACK = 0.7;
@@ -152,16 +134,16 @@ struct Params {
     double FAST_TAIL_SMALL_MULT = 1.5;
 
     // Greedy move heuristic
-    double GREEDY_APPLE_IMMEDIATE = 1000.0;
-    double GREEDY_APPLE_DIST = -10.0;
-    double GREEDY_SUPPORT = 5.0;
-    double GREEDY_UP_PEN = -2.0;
-    double GREEDY_BLOCKED_PEN = -500.0;
-    double GREEDY_HEAD_COLL_PEN = -100.0;
-    double GREEDY_HEAD_COLL_PEN_SMALL = -200.0;
-    double GREEDY_HEAD_COLL_BONUS = 30.0;
-    double GREEDY_TRAPPED_PEN = -300.0;
-    double GREEDY_TRAPPED_MILD_PEN = -50.0;
+    // double GREEDY_APPLE_IMMEDIATE = 1000.0;
+    // double GREEDY_APPLE_DIST = -10.0;
+    // double GREEDY_SUPPORT = 5.0;
+    // double GREEDY_UP_PEN = -2.0;
+    // double GREEDY_BLOCKED_PEN = -500.0;
+    // double GREEDY_HEAD_COLL_PEN = -100.0;
+    // double GREEDY_HEAD_COLL_PEN_SMALL = -200.0;
+    // double GREEDY_HEAD_COLL_BONUS = 30.0;
+    // double GREEDY_TRAPPED_PEN = -300.0;
+    // double GREEDY_TRAPPED_MILD_PEN = -50.0;
 
     // Beam search sizing
     int BEAM_WIDTH_TINY = 100;
@@ -182,7 +164,7 @@ struct Params {
     int OPP_COMBO_LIMIT = 9;
     int OPP_COMBO_LIMIT_SMALL = 12;
 
-    double BEAM_TRAPPED_PEN = -5000.0;
+    // double BEAM_TRAPPED_PEN = -5000.0;
 
     // NEW: How many top beam nodes to re-evaluate with full (non-fast) eval at depth 0
     int REEVAL_TOP_K = 30;
