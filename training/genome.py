@@ -87,6 +87,7 @@ PARAM_DEFS = {
     # Anti-stall
     "ANTI_TRAMPOLINE":           (-12000.0, 0.0, -1200.0),
     "STALL_REVISIT":             (-20000.0, 0.0, -2000.0),
+    "STALL_URGENCY_CAP":         (1.0,      3.0,    1.3),
 
     # Alive count
     "ALIVE_EARLY":               (0.0,  1200.0,  120.0),
@@ -94,6 +95,8 @@ PARAM_DEFS = {
     "ALIVE_LATE":                (0.0,   400.0,   40.0),
     "ALIVE_WINNING_MULT":        (0.5,     8.0,    1.5),
     "ALIVE_SMALL_MULT":          (0.5,     8.0,    1.3),
+    "ALIVE_OWN_PER_SNAKE":       (0.0,   800.0,  350.0),
+    "ALIVE_OPP_PER_SNAKE":       (0.0,   500.0,  200.0),
 
     # Tail chase
     "TAIL_DEFAULT":              (0.0,   100.0,    5.0),
