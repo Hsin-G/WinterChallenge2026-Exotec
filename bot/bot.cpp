@@ -1,20 +1,4 @@
 #pragma GCC optimize("O3,inline,omit-frame-pointer,unroll-loops")
-
-// =============================================================
-// IMPROVED SNAKEBOT - Key changes vs original:
-//   1. SnakeBody ring buffer replaces deque<Coord>
-//      → Eliminates all heap allocation during beam search
-//      → O(1) push_front / pop_back, inline storage
-//   2. Indirect beam sort (sort indices, not 32KB nodes)
-//      → Eliminates O(N·32KB) data movement per sort
-//   3. Single simulation per combo in beam search
-//      → Removes redundant re-simulation for state storage
-//   4. Voronoi bucket cleanup optimized (vmin_bucket start)
-//   5. validMovesSafe receives pre-computed blocked board
-//   6. New params: MOBILITY_BONUS, REEVAL_TOP_K, THREAT_DIST
-//   7. Tail-following via BFS distance (replaces manhattan)
-// =============================================================
-
 #include <iostream>
 #include <string>
 #include <vector>
@@ -33,119 +17,137 @@
 
 using namespace std;
 
-// =============================================================
-// TUNABLE PARAMETERS
-// =============================================================
 struct Params {
-    double  LEN_WEIGHT = 457.3133350029462;
-    double  LEN_WEIGHT_SMALL = 263.570566770072;
-    double  LEN_WEIGHT_WINNING_LATE = 228.4158070514701;
-    double  LEN_WEIGHT_LOSING_LATE = 10.0;
-    double  GROWTH_BASE = 1189.0495475070675;
-    double  SCARCITY_MULT_LOW = 2.2425750856786824;
-    double  SCARCITY_MULT_MED = 3.2054082232915246;
-    double  SCARCITY_MULT_HIGH = 0.9663350619237547;
-    double  VORONOI_APPLE_CLEAR = 0.0;
-    double  VORONOI_APPLE_SLIGHT = 3.3117347245236908;
-    double  VORONOI_APPLE_CONTESTED = -5.0;
-    double  VORONOI_APPLE_LOSE = -46.95677224910253;
-    double  VORONOI_APPLE_TIE_LOSE = -51.62087811623487;
-    double  EAT_BONUS = 5532.866746106523;
-    double  TERRITORY_WEIGHT = 0.0;
-    double  TERRITORY_WEIGHT_SMALL = 4.92962952963947;
-    double  TERRITORY_WEIGHT_SMALL_LATE = 2.5978476430286728;
-    double  TERRITORY_WEIGHT_WINNING_LATE = 0.0;
-    double  ENERGY_CONTROL_WEIGHT = 182.790661418695;
-    double  CLOSEST_ENERGY_WEIGHT = 480.90345856374535;
-    double  CLOSEST_ENERGY_FALLBACK = 288.056908692045;
-    double  NO_ENERGY_PEN = -593.4846908293422;
-    double  TRAP_SEVERE = -241.24975710716672;
-    double  TRAP_MILD = -31.64429556058139;
-    double  TRAP_MULT_SMALL = 1.1253411818227617;
-    double  TRAP_MULT_TINY = 0.5;
-    double  OPP_TRAP_BONUS = 80.01643381848532;
-    double  OPP_TRAP_BONUS_SMALL = 30.188182553198146;
-    double  LOG_SPACE_BONUS = 5.491141384573997;
-    double  SPACE_GOOD = 0.0;
-    double  SPACE_BAD = -22.99969311238486;
-    double  NO_MOVES_PEN = -873.2919728330627;
-    double  NO_MOVES_PEN_SMALL = -1378.4303657760863;
-    double  ONE_MOVE_PEN = -291.6727302495658;
-    double  ONE_MOVE_PEN_SMALL = -362.31392071599794;
-    double  TWO_MOVES_PEN_SMALL = -200.0;
-    double  MOBILITY_BONUS = 8.45770604384502;
-    double  HEAD_CLOSE_SMALLER = 0.0;
-    double  HEAD_CLOSE_SMALLER_SMALL = -361.01782475686537;
-    double  HEAD_CLOSE_BIGGER = 302.4676004178366;
-    double  HEAD_CLOSE_BIGGER_SMALL = 245.73341217170815;
-    double  HEAD_NEAR_SMALLER = -139.73846154143638;
-    double  HEAD_NEAR_SMALLER_SMALL = -371.1270086836966;
-    double  HEAD_NEAR_LINE_SMALL = -286.114910810064;
-    double  EDGE_X = -30.359402004556202;
-    double  EDGE_Y = -67.62755429878855;
-    double  CORNER_EXTRA = -62.74405601646483;
-    double  GRAVITY_RISK_NONE = -1032.6456936622615;
-    double  GRAVITY_RISK_HIGH = 0.0;
-    double  GRAVITY_RISK_LOW = -60.510711765900155;
-    double  GRAVITY_DEATH = -1139.7147854056557;
-    double  GRAVITY_EXPLOIT = 0.9273449691876634;
-    double  GRAVITY_EXPLOIT_FALL_DEATH = 2000.0;
-    double  GRAVITY_EXPLOIT_FALL_FAR = 0.0;
-    double  GRAVITY_RISK_SMALL = 0.2803997744564303;
-    double  GRAVITY_RISK_LARGE = 0.38712481244517327;
-    double  ANTI_TRAMPOLINE = -9275.447106585632;
-    double  STALL_REVISIT = 0.0;
-    double  ALIVE_EARLY = 802.4477126936711;
-    double  ALIVE_MID = 380.55868439030746;
-    double  ALIVE_LATE = 0.0;
-    double  ALIVE_WINNING_MULT = 5.3017056649340235;
-    double  ALIVE_SMALL_MULT = 2.9668517594059756;
-    double  TAIL_DEFAULT = 0.0;
-    double  TAIL_WINNING = 143.06310927905696;
-    double  TAIL_NO_FOOD = 136.35681211716908;
-    double  TAIL_NO_VORONOI = 151.94405350111498;
-    double  TAIL_SMALL_MULT = 0.5741068372353455;
-    double  SHORT_3 = 0.0;
-    double  SHORT_3_SMALL = -726.752074670928;
-    double  SHORT_4 = -40.0;
-    double  SHORT_4_SMALL = -240.25416180301045;
-    double  STAIRCASE = 0.0;
-    double  OPP_MAXLEN_THREAT = -68.95669909410091;
-    double  GREEDY_APPLE_IMMEDIATE = 273.31622739675686;
-    double  GREEDY_APPLE_DIST = 0.0;
-    double  GREEDY_SUPPORT = 12.71657710321957;
-    double  GREEDY_UP_PEN = -2.441923052327346;
-    double  GREEDY_BLOCKED_PEN = -3516.9947484609197;
-    double  GREEDY_HEAD_COLL_PEN = -57.27985209956674;
-    double  GREEDY_HEAD_COLL_PEN_SMALL = -881.8180444417421;
-    double  GREEDY_HEAD_COLL_BONUS = 213.15665985823966;
-    double  GREEDY_TRAPPED_PEN = -348.9177994438942;
-    double  GREEDY_TRAPPED_MILD_PEN = -371.65825634712115;
-    double  BEAM_TRAPPED_PEN = -19527.636787742078;
 
-    // Fast eval
-    double FAST_APPLE_FALLBACK = 0.7;
-    double FAST_OPP_NEAR_APPLE = -60.0;
-    double FAST_TRAP_SEVERE = -180.0;
-    double FAST_TRAP_MILD = -25.0;
-    double FAST_TAIL_WINNING = 30.0;
-    double FAST_TAIL_NO_FOOD = 25.0;
-    double FAST_TAIL_DEFAULT = 5.0;
-    double FAST_TAIL_SMALL_MULT = 1.5;
+    double  LEN_WEIGHT              = 1000.0;
+    double  LEN_WEIGHT_SMALL        = 1200.0;
+    double  LEN_WEIGHT_WINNING_LATE = 1800.0;
+    double  LEN_WEIGHT_LOSING_LATE  = 800.0;
 
-    // Greedy move heuristic
-    // double GREEDY_APPLE_IMMEDIATE = 1000.0;
-    // double GREEDY_APPLE_DIST = -10.0;
-    // double GREEDY_SUPPORT = 5.0;
-    // double GREEDY_UP_PEN = -2.0;
-    // double GREEDY_BLOCKED_PEN = -500.0;
-    // double GREEDY_HEAD_COLL_PEN = -100.0;
-    // double GREEDY_HEAD_COLL_PEN_SMALL = -200.0;
-    // double GREEDY_HEAD_COLL_BONUS = 30.0;
-    // double GREEDY_TRAPPED_PEN = -300.0;
-    // double GREEDY_TRAPPED_MILD_PEN = -50.0;
+    double  GROWTH_BASE             = 600.0;
+    double  SCARCITY_MULT_LOW       = 8.0;
+    double  SCARCITY_MULT_MED       = 5.0;
+    double  SCARCITY_MULT_HIGH      = 2.0;
 
-    // Beam search sizing
+    double  VORONOI_APPLE_CLEAR     = 1.0;
+    double  VORONOI_APPLE_SLIGHT    = 0.65;
+    double  VORONOI_APPLE_CONTESTED = 0.35;
+    double  VORONOI_APPLE_LOSE      = -0.5;
+    double  VORONOI_APPLE_TIE_LOSE  = -0.5;
+
+    double  EAT_BONUS               = 1500.0;
+
+    double  TERRITORY_WEIGHT              = 8.0;
+    double  TERRITORY_WEIGHT_SMALL        = 15.0;
+    double  TERRITORY_WEIGHT_SMALL_LATE   = 12.0;
+    double  TERRITORY_WEIGHT_WINNING_LATE = 10.0;
+
+    double  ENERGY_CONTROL_WEIGHT    = 180.0;
+    double  CLOSEST_ENERGY_WEIGHT    = 350.0;
+    double  CLOSEST_ENERGY_FALLBACK  = 180.0;
+    double  NO_ENERGY_PEN            = -100.0;
+
+    double  TRAP_SEVERE             = -900.0;
+    double  TRAP_MILD               = -150.0;
+    double  TRAP_MULT_SMALL         = 2.5;
+    double  TRAP_MULT_TINY          = 3.5;
+    double  OPP_TRAP_BONUS          = 350.0;
+    double  OPP_TRAP_BONUS_SMALL    = 550.0;
+
+    double  LOG_SPACE_BONUS         = 12.0;
+    double  SPACE_GOOD              = 250.0;
+    double  SPACE_BAD               = -180.0;
+
+    double  NO_MOVES_PEN            = -2500.0;
+    double  NO_MOVES_PEN_SMALL      = -4000.0;
+    double  ONE_MOVE_PEN            = -500.0;
+    double  ONE_MOVE_PEN_SMALL      = -900.0;
+    double  TWO_MOVES_PEN_SMALL     = -150.0;
+    double  MOBILITY_BONUS          = 20.0;
+
+    double  HEAD_CLOSE_SMALLER       = -1800.0;
+    double  HEAD_CLOSE_SMALLER_SMALL = -2500.0;
+    double  HEAD_CLOSE_BIGGER        = 350.0;
+    double  HEAD_CLOSE_BIGGER_SMALL  = 450.0;
+    double  HEAD_NEAR_SMALLER        = -400.0;
+    double  HEAD_NEAR_SMALLER_SMALL  = -650.0;
+    double  HEAD_NEAR_LINE_SMALL     = -300.0;
+
+    double  FAST_HEAD_CLOSE_SMALLER  = -900.0;
+    double  FAST_HEAD_CLOSE_BIGGER   = 150.0;
+    double  FAST_HEAD_NEAR_SMALLER   = -200.0;
+
+    double  EDGE_X                  = -60.0;
+    double  EDGE_Y                  = -140.0;
+    double  CORNER_EXTRA            = -350.0;
+
+    double  GRAVITY_RISK_NONE            = -800.0;
+    double  GRAVITY_RISK_HIGH            = -60.0;
+    double  GRAVITY_RISK_LOW             = -20.0;
+    double  GRAVITY_DEATH                = -4500.0;
+    double  GRAVITY_EXPLOIT              = 7.0;
+    double  GRAVITY_EXPLOIT_FALL_DEATH   = 850.0;
+    double  GRAVITY_EXPLOIT_FALL_FAR     = 100.0;
+    double  GRAVITY_RISK_SMALL           = 5.0;
+    double  GRAVITY_RISK_LARGE           = 3.0;
+
+    double  ANTI_TRAMPOLINE         = -1200.0;
+    double  STALL_REVISIT           = -600.0;
+    double  STALL_URGENCY_CAP       = 1.3;
+
+    double  ALIVE_EARLY             = 700.0;
+    double  ALIVE_MID               = 450.0;
+    double  ALIVE_LATE              = 300.0;
+    double  ALIVE_WINNING_MULT      = 2.5;
+    double  ALIVE_SMALL_MULT        = 3.0;
+
+    double  ALIVE_OWN_PER_SNAKE     = 350.0;
+    double  ALIVE_OPP_PER_SNAKE     = 200.0;
+
+    double  TAIL_DEFAULT            = 30.0;
+    double  TAIL_WINNING            = 200.0;
+    double  TAIL_NO_FOOD            = 150.0;
+    double  TAIL_NO_VORONOI         = 220.0;
+    double  TAIL_SMALL_MULT         = 3.5;
+
+    double  SHORT_3                 = -700.0;
+    double  SHORT_3_SMALL           = -1200.0;
+    double  SHORT_4                 = -450.0;
+    double  SHORT_4_SMALL           = -700.0;
+
+    double  STAIRCASE               = 10.0;
+
+    double  OPP_MAXLEN_THREAT       = -300.0;
+    double  GREEDY_APPLE_IMMEDIATE   = 3000.0;
+    double  GREEDY_APPLE_DIST        = -120.0;
+    double  GREEDY_SUPPORT           = 80.0;
+
+    double  GREEDY_UP_PEN            = 0.0;
+    double  GREEDY_BLOCKED_PEN       = -2500.0;
+    double  GREEDY_HEAD_COLL_PEN     = -900.0;
+    double  GREEDY_HEAD_COLL_PEN_SMALL = -1800.0;
+    double  GREEDY_HEAD_COLL_BONUS   = 400.0;
+    double  GREEDY_TRAPPED_PEN       = -800.0;
+    double  GREEDY_TRAPPED_MILD_PEN  = -70.0;
+    double  BEAM_TRAPPED_PEN        = -6000.0;
+
+    double  TRAP_APPLE_EAT_PEN      = -550.0;
+    double  TRAP_APPLE_EVAL_PEN     = -400.0;
+    double  TRAP_APPLE_HARD_PEN     = -2200.0;
+    double  TRAP_APPLE_COMBO_PEN    = -900.0;
+
+    double  GREEDY_APPLE_HEIGHT_BONUS = 30.0;
+    double  APPLE_HEIGHT_BONUS        = 25.0;
+
+    double FAST_APPLE_FALLBACK      = 0.70;
+    double FAST_OPP_NEAR_APPLE      = -80.0;
+    double FAST_TRAP_SEVERE         = -200.0;
+    double FAST_TRAP_MILD           = -30.0;
+    double FAST_TAIL_WINNING        = 35.0;
+    double FAST_TAIL_NO_FOOD        = 25.0;
+    double FAST_TAIL_DEFAULT        = 8.0;
+    double FAST_TAIL_SMALL_MULT     = 1.5;
+
     int BEAM_WIDTH_TINY = 100;
     int BEAM_DEPTH_TINY = 8;
     int BEAM_COMBO_TINY = 20;
@@ -164,13 +166,20 @@ struct Params {
     int OPP_COMBO_LIMIT = 9;
     int OPP_COMBO_LIMIT_SMALL = 12;
 
-    // double BEAM_TRAPPED_PEN = -5000.0;
-
-    // NEW: How many top beam nodes to re-evaluate with full (non-fast) eval at depth 0
     int REEVAL_TOP_K = 30;
+
+    int    APPLE_RICH_THRESHOLD    = 12;
+    double APPLE_RICH_APPLE_MULT   = 3.0;
+    double APPLE_RICH_SPREAD_PEN   = 280.0;
+    double APPLE_RICH_SPREAD_DIST  = 7.0;
+    double APPLE_RICH_TERR_SCALE   = 0.25;
+    double APPLE_RICH_CLOSEST_MULT = 2.0;
 };
 
 static Params P;
+
+static int  gAppleCount = 0;
+static bool gAppleRich  = false;
 
 static bool loadParamsJson(const string& filename) {
     ifstream f(filename);
@@ -224,10 +233,13 @@ static bool loadParamsJson(const string& filename) {
         {"GRAVITY_RISK_SMALL", &P.GRAVITY_RISK_SMALL},
         {"GRAVITY_RISK_LARGE", &P.GRAVITY_RISK_LARGE},
         {"ANTI_TRAMPOLINE", &P.ANTI_TRAMPOLINE}, {"STALL_REVISIT", &P.STALL_REVISIT},
+        {"STALL_URGENCY_CAP", &P.STALL_URGENCY_CAP},
         {"ALIVE_EARLY", &P.ALIVE_EARLY}, {"ALIVE_MID", &P.ALIVE_MID},
         {"ALIVE_LATE", &P.ALIVE_LATE},
         {"ALIVE_WINNING_MULT", &P.ALIVE_WINNING_MULT},
         {"ALIVE_SMALL_MULT", &P.ALIVE_SMALL_MULT},
+        {"ALIVE_OWN_PER_SNAKE", &P.ALIVE_OWN_PER_SNAKE},
+        {"ALIVE_OPP_PER_SNAKE", &P.ALIVE_OPP_PER_SNAKE},
         {"TAIL_DEFAULT", &P.TAIL_DEFAULT}, {"TAIL_WINNING", &P.TAIL_WINNING},
         {"TAIL_NO_FOOD", &P.TAIL_NO_FOOD}, {"TAIL_NO_VORONOI", &P.TAIL_NO_VORONOI},
         {"TAIL_SMALL_MULT", &P.TAIL_SMALL_MULT},
@@ -270,18 +282,12 @@ static bool loadParamsJson(const string& filename) {
     return true;
 }
 
-// =============================================================
-// PERFORMANCE PRIMITIVES
-// =============================================================
 using Clock = chrono::steady_clock;
 using Ms    = chrono::milliseconds;
 inline int64_t elapsed(Clock::time_point t0) {
     return chrono::duration_cast<Ms>(Clock::now() - t0).count();
 }
 
-// =============================================================
-// GRID & COORDINATE SYSTEM
-// =============================================================
 constexpr int MAX_W = 50, MAX_H = 30, MAX_CELLS = MAX_W * MAX_H;
 int W, H;
 bool smallMap = false;
@@ -306,9 +312,6 @@ const Coord DIRS[4]        = {{0,-1},{0,1},{-1,0},{1,0}};
 const string DIR_NAMES[4]  = {"UP","DOWN","LEFT","RIGHT"};
 constexpr int DIR_UP=0, DIR_DOWN=1, DIR_LEFT=2, DIR_RIGHT=3;
 
-// =============================================================
-// BITBOARD
-// =============================================================
 constexpr int BW = (MAX_CELLS + 63) / 64;
 struct BitBoard {
     uint64_t w[BW] = {};
@@ -336,19 +339,6 @@ struct BitBoard {
     inline void reset() { for(int i=0;i<BW;i++) w[i]=0; }
 };
 
-// =============================================================
-// SNAKE BODY - Ring Buffer (CHANGE: replaces deque<Coord>)
-//
-// Benefits vs deque:
-//   • Zero heap allocation: entire body stored inline
-//   • O(1) push_front, pop_back, random access
-//   • Trivially copyable → fast BeamNode copies via memcpy-like semantics
-//   • Excellent cache locality
-//
-// BODY_CAP=256: supports snakes up to 256 segments long.
-// In a 200-turn game snakes realistically peak at ~100-120 segments.
-// Raise BODY_CAP if needed (each +256 adds 2KB per Snake).
-// =============================================================
 static constexpr int BODY_CAP = 256;
 static_assert(BODY_CAP <= 32767, "BODY_CAP must fit in int16_t");
 
@@ -363,28 +353,24 @@ struct SnakeBody {
     inline Coord front() const { return data[head_idx]; }
     inline Coord back()  const { return data[(head_idx + sz - 1 + BODY_CAP) % BODY_CAP]; }
 
-    // Random access (const and mutable)
     inline const Coord& operator[](int i) const { return data[(head_idx + i) % BODY_CAP]; }
     inline       Coord& operator[](int i)       { return data[(head_idx + i) % BODY_CAP]; }
 
-    // Push new head (equivalent to deque::push_front)
     inline void push_front(Coord c) {
         head_idx = (head_idx == 0) ? BODY_CAP - 1 : head_idx - 1;
         data[head_idx] = c;
         ++sz;
     }
-    // Remove tail (equivalent to deque::pop_back)
+
     inline void pop_back()  { --sz; }
-    // Remove head (for beheading)
+
     inline void pop_front() { head_idx = (head_idx + 1) % BODY_CAP; --sz; }
 
-    // Append to tail — used only during initialization parsing
     inline void push_back(Coord c) {
         data[(head_idx + sz) % BODY_CAP] = c;
         ++sz;
     }
 
-    // ---- Iterators (const and mutable for range-based for) ----
     struct MIter {
         SnakeBody* sb; int i;
         Coord& operator*()  const { return (*sb)[i]; }
@@ -403,15 +389,12 @@ struct SnakeBody {
     CIter end()   const { return {this, sz}; }
 };
 
-// =============================================================
-// GAME STATE
-// =============================================================
 constexpr int MAX_SNAKES = 8;
 struct Snake {
     int  id      = -1;
     int  owner   = -1;
     bool alive   = false;
-    SnakeBody body;          // CHANGED: was deque<Coord>
+    SnakeBody body;
     int  lastDir = DIR_UP;
 
     inline Coord head() const { return body.front(); }
@@ -482,7 +465,7 @@ inline bool cellSupported(int x, int y,
 }
 
 void simulate(State& st, const int moves[]) {
-    // Phase 1: Move
+
     for (int i=0;i<st.nSnakes;i++) {
         Snake& sn = st.snakes[i];
         if (!sn.alive) continue;
@@ -494,14 +477,14 @@ void simulate(State& st, const int moves[]) {
         if (!willEat) sn.body.pop_back();
         sn.body.push_front(newHead);
     }
-    // Phase 2: Consume apples
+
     for (int i=0;i<st.nSnakes;i++) {
         Snake& sn = st.snakes[i];
         if (!sn.alive) continue;
         if (sn.head().inBounds() && st.apples.tstC(sn.head()))
             st.apples.clrC(sn.head());
     }
-    // Phase 3: Collision detection
+
     bool   toBehead[MAX_SNAKES] = {};
     Coord  heads[MAX_SNAKES];
     for (int i=0;i<st.nSnakes;i++)
@@ -528,14 +511,14 @@ void simulate(State& st, const int moves[]) {
             if (heads[j]==h && st.snakes[j].len()>=sn.len()) { toBehead[i]=true; break; }
         }
     }
-    // Phase 4: Apply deaths
+
     for (int i=0;i<st.nSnakes;i++) {
         if (!toBehead[i]) continue;
         Snake& sn = st.snakes[i];
         if (sn.len() <= 3) { st.losses[sn.owner] += sn.len(); sn.alive = false; }
         else               { st.losses[sn.owner]++; sn.body.pop_front(); }
     }
-    // Phase 5: Gravity (max H+5 iterations)
+
     {
         int maxGravIter = H + 5;
         for (int gravIter=0; gravIter<maxGravIter; gravIter++) {
@@ -572,7 +555,7 @@ void simulate(State& st, const int moves[]) {
                 if (!isAirborne[i]) continue;
                 somethingFell = true;
                 Snake& sn = st.snakes[i];
-                for (auto& c : sn.body) c.y++;       // mutable iterator used here
+                for (auto& c : sn.body) c.y++;
                 bool allOut = true;
                 for (auto& c : sn.body) if (c.y<H) { allOut=false; break; }
                 if (allOut) sn.alive = false;
@@ -584,9 +567,6 @@ void simulate(State& st, const int moves[]) {
     st.turn++;
 }
 
-// =============================================================
-// FLOOD-FILL (no gravity)
-// =============================================================
 static int ff_visited[MAX_CELLS];
 static int ff_token = 0;
 
@@ -613,9 +593,6 @@ int floodFillCount(Coord src, const BitBoard& walls, const BitBoard& blocked) {
     return count;
 }
 
-// =============================================================
-// FLOOD-FILL WITH GRAVITY AWARENESS
-// =============================================================
 static int ffg_visited[MAX_H][MAX_W];
 static int ffg_token = 0;
 
@@ -663,9 +640,6 @@ int floodFillGravity(Coord src, const BitBoard& walls,
     return count;
 }
 
-// =============================================================
-// BFS APPLE DISTANCE
-// =============================================================
 static int bfs_visited[MAX_H][MAX_W];
 static int bfs_token = 0;
 
@@ -696,9 +670,96 @@ int bfsAppleDist(Coord src, const BitBoard& walls,
     return INT_MAX;
 }
 
-// =============================================================
-// VORONOI WITH BUCKET QUEUE
-// =============================================================
+inline int appleEatFreeSpace(Coord applePos, const BitBoard& walls,
+                              const BitBoard& fullBlocked) {
+
+    return floodFillCount(applePos, walls, fullBlocked);
+}
+
+inline int appleEatDeficit(Coord applePos, int snLen,
+                            const BitBoard& walls, const BitBoard& fullBlocked) {
+    int free = appleEatFreeSpace(applePos, walls, fullBlocked);
+    return max(0, (snLen + 1) - free);
+}
+
+static int   bfsDirVisited[MAX_H][MAX_W];
+static int8_t bfsDirFirst  [MAX_H][MAX_W];
+static int   bfsDirToken = 0;
+
+int bfsDir(Coord src, Coord target,
+           const BitBoard& walls, const BitBoard& blocked) {
+    if (!src.inBounds() || !target.inBounds()) return -1;
+    if (src == target) return -1;
+
+    bfsDirToken++;
+    static Coord q[MAX_CELLS];
+    int qHead = 0, qTail = 0;
+
+    bfsDirVisited[src.y][src.x] = bfsDirToken;
+    bfsDirFirst[src.y][src.x]   = -1;
+
+    for (int d = 0; d < 4; d++) {
+        Coord n = src + DIRS[d];
+        if (!n.inBounds()) continue;
+        if (bfsDirVisited[n.y][n.x] == bfsDirToken) continue;
+        if (walls.tstC(n) || blocked.tstC(n)) continue;
+        bfsDirVisited[n.y][n.x] = bfsDirToken;
+        bfsDirFirst  [n.y][n.x] = (int8_t)d;
+        if (n == target) return d;
+        q[qTail++] = n;
+    }
+
+    while (qHead < qTail) {
+        Coord c = q[qHead++];
+        int8_t fd = bfsDirFirst[c.y][c.x];
+        for (int d = 0; d < 4; d++) {
+            Coord n = c + DIRS[d];
+            if (!n.inBounds()) continue;
+            if (bfsDirVisited[n.y][n.x] == bfsDirToken) continue;
+            if (walls.tstC(n) || blocked.tstC(n)) continue;
+            bfsDirVisited[n.y][n.x] = bfsDirToken;
+            bfsDirFirst  [n.y][n.x] = fd;
+            if (n == target) return fd;
+            q[qTail++] = n;
+        }
+    }
+    return -1;
+}
+
+void assignApplesToSnakes(const State& st, int myOwner,
+                          const Coord appleList[], int nApples,
+                          int assignOut[]) {
+    fill(assignOut, assignOut + MAX_SNAKES, -1);
+    if (nApples == 0) return;
+
+    struct SA { int si, ai, dist; };
+    static SA cands[MAX_SNAKES * 200];
+    int nCand = 0;
+
+    for (int i = 0; i < st.nSnakes; i++) {
+        if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
+        Coord h = st.snakes[i].head();
+        if (!h.inBounds()) continue;
+        for (int a = 0; a < nApples; a++) {
+            int md = h.manhattan(appleList[a]);
+
+            cands[nCand++] = {i, a, md * (H + 1) + appleList[a].y};
+        }
+    }
+    if (nCand == 0) return;
+
+    sort(cands, cands + nCand, [](const SA& a, const SA& b){ return a.dist < b.dist; });
+
+    bool snakeUsed[MAX_SNAKES] = {};
+    bool appleUsed[200]        = {};
+    for (int ci = 0; ci < nCand; ci++) {
+        int si = cands[ci].si, ai = cands[ci].ai;
+        if (snakeUsed[si] || appleUsed[ai]) continue;
+        assignOut[si] = ai;
+        snakeUsed[si] = true;
+        appleUsed[ai] = true;
+    }
+}
 struct VoronoiResult {
     int territory[2]   = {0, 0};
     int energyControl[2] = {0, 0};
@@ -807,9 +868,6 @@ VoronoiResult computeVoronoi(const State& st, const BitBoard& blocked,
         }
     }
 
-    // OPTIMIZED: only clear the range we actually used
-    // (original cleared 0..vmax_bucket; we start from vmin_bucket since
-    //  buckets below that were already emptied by the BFS above)
     for (int i=vmin_bucket; i<=vmax_bucket; ++i) vbuckets[i].reset();
 
     for (int a=0;a<nApples;a++) {
@@ -897,23 +955,31 @@ double snakeGravityRisk(const Snake& sn, const BitBoard& walls,
         if (cellSupported(c.x,c.y,walls,apples,blocked)) { anySupported=true; break; }
     }
     if (anySupported) return 0;
+
     int minFall = INT_MAX;
     for (auto& c : sn.body) {
         if (!c.inBounds()) continue;
-        int fy=c.y;
-        while (fy+1<H) { Coord b(c.x,fy+1); if(walls.tstC(b)) break; fy++; }
-        int fall = fy-c.y;
-        if (fy+1>=H && !cellSupported(c.x,fy,walls,apples,blocked)) fall=100;
-        minFall = min(minFall,fall);
+        int fy = c.y;
+        while (fy + 1 < H) {
+            Coord b(c.x, fy + 1);
+            if (walls.tstC(b) || apples.tstC(b) || blocked.tstC(b)) break;
+            fy++;
+        }
+        int fall = fy - c.y;
+
+        if (fy + 1 >= H && !cellSupported(c.x, fy, walls, apples, blocked))
+            fall = 100;
+        minFall = min(minFall, fall);
     }
-    if (minFall>=100) return P.GRAVITY_DEATH;
-    if (minFall>=3)   return -minFall*P.GRAVITY_RISK_HIGH;
-    return             -minFall*P.GRAVITY_RISK_LOW;
+
+    if (minFall >= 100) return P.GRAVITY_DEATH;
+    if (minFall == 0)   return 0;
+    if (minFall == 1)   return 0.0;
+    if (minFall == 2)   return -minFall * P.GRAVITY_RISK_LOW * 0.3;
+    if (minFall >= 3)   return -minFall * P.GRAVITY_RISK_HIGH;
+    return               -minFall * P.GRAVITY_RISK_LOW;
 }
 
-// =============================================================
-// EVALUATION FUNCTION
-// =============================================================
 double evaluate(const State& st, int myOwner, bool fast=false,
                 const State* initSt=nullptr, double stallUrgency=1.0,
                 const map<int,deque<Coord>>* hist=nullptr) {
@@ -927,9 +993,13 @@ double evaluate(const State& st, int myOwner, bool fast=false,
 
     int    myLen    = st.scoreFor(myOwner);
     int    oppLen   = st.scoreFor(opp);
-    int    turnsLeft= 200 - st.turn;
     double score    = 0;
-    double phase    = max(0.0, min(1.0, (200.0-turnsLeft-60.0)/80.0));
+
+    int    turnsElapsed = st.turn;
+    double timeFraction  = min(1.0, (double)turnsElapsed / 120.0);
+    double scoreFraction = (myLen > 0 && oppLen > 0) ?
+        abs(myLen - oppLen) / (double)(myLen + oppLen) : 0.0;
+    double phase    = min(1.0, max(timeFraction, scoreFraction * 0.5));
     int    lenDiff  = myLen - oppLen;
     bool   winning  = lenDiff > 2;
     bool   losing   = lenDiff < -2;
@@ -939,7 +1009,6 @@ double evaluate(const State& st, int myOwner, bool fast=false,
     if (phase>0.7 && losing)  lenWeight = P.LEN_WEIGHT_LOSING_LATE;
     score += lenDiff * lenWeight;
 
-    // Anti-trampoline / eating bonuses / stall detection
     if (initSt != nullptr) {
         for (int i=0;i<st.nSnakes;i++) {
             if (!st.snakes[i].alive || st.snakes[i].owner!=myOwner) continue;
@@ -950,14 +1019,16 @@ double evaluate(const State& st, int myOwner, bool fast=false,
             if (hist != nullptr) {
                 Coord h = st.snakes[i].head();
                 auto it = hist->find(st.snakes[i].id);
-                if (it != hist->end())
+                if (it != hist->end()) {
+
+                    double revisitUrgency = min(stallUrgency, P.STALL_URGENCY_CAP);
                     for (const auto& past_h : it->second)
-                        if (h==past_h) { score += P.STALL_REVISIT * stallUrgency; break; }
+                        if (h==past_h) { score += P.STALL_REVISIT * revisitUrgency; break; }
+                }
             }
         }
     }
 
-    // Build apple list
     Coord  appleList[200];
     int    nApples=0;
     for (int y=0;y<H&&nApples<200;y++)
@@ -972,11 +1043,37 @@ double evaluate(const State& st, int myOwner, bool fast=false,
     double aggressionMult = (phase>0.6&&winning)?0.6:((phase>0.5&&losing)?1.5:1.0);
     double growthWeight   = P.GROWTH_BASE * scarcityMult * advantageMult * aggressionMult * stallUrgency;
 
-    // Compute blocked board once for this evaluate call
+    if (turnsElapsed > 0 && turnsElapsed <= 20) {
+        double earlyMult = 1.0 + 1.5 * max(0.0, (20.0 - turnsElapsed) / 20.0);
+        growthWeight *= earlyMult;
+    }
+
+    if (gAppleRich) {
+        growthWeight *= P.APPLE_RICH_APPLE_MULT;
+    }
+
+    {
+        Coord myHeads[MAX_SNAKES]; int nMyH = 0;
+        for (int i = 0; i < st.nSnakes; i++) {
+            if (!st.snakes[i].alive || st.snakes[i].owner != myOwner) continue;
+            if (st.snakes[i].head().inBounds())
+                myHeads[nMyH++] = st.snakes[i].head();
+        }
+        if (nMyH > 1) {
+            double spreadScale = gAppleRich ? 1.0 : 0.4;
+            for (int a = 0; a < nMyH; a++)
+                for (int b = a+1; b < nMyH; b++) {
+                    int d = myHeads[a].manhattan(myHeads[b]);
+                    int thresh = (int)P.APPLE_RICH_SPREAD_DIST;
+                    if (d < thresh)
+                        score -= P.APPLE_RICH_SPREAD_PEN * (thresh - d) * spreadScale;
+                }
+        }
+    }
+
     BitBoard bodyBrd  = st.bodyBoardConst();
     BitBoard blocked  = st.walls | bodyBrd;
 
-    // Staircase bonus (reward stable vertical structures)
     {
         BitBoard myBrd;
         for (int i=0;i<st.nSnakes;i++)
@@ -991,7 +1088,6 @@ double evaluate(const State& st, int myOwner, bool fast=false,
     }
 
     if (fast) {
-        // --- FAST PATH (depth > 0 in beam search) ---
         bool appleAssigned[200]={}, snakeAssigned[MAX_SNAKES]={};
         struct SA { int si,ai,dist; };
         static SA candidates[200*MAX_SNAKES];
@@ -999,22 +1095,47 @@ double evaluate(const State& st, int myOwner, bool fast=false,
         for (int i=0;i<st.nSnakes;i++) {
             if (!st.snakes[i].alive || st.snakes[i].owner!=myOwner) continue;
             Coord h=st.snakes[i].head(); if (!h.inBounds()) continue;
-            for (int a=0;a<nApples;a++)
-                candidates[nCand++]={i,a,h.manhattan(appleList[a])};
+            for (int a=0;a<nApples;a++) {
+                int md = h.manhattan(appleList[a]);
+
+                candidates[nCand++]={i, a, md*(H+1)+appleList[a].y};
+            }
         }
         sort(candidates, candidates+nCand, [](const SA& a,const SA& b){ return a.dist<b.dist; });
         for (int ci=0;ci<nCand;ci++) {
             auto& ca=candidates[ci];
             if (snakeAssigned[ca.si]||appleAssigned[ca.ai]) continue;
             snakeAssigned[ca.si]=appleAssigned[ca.ai]=true;
-            score += growthWeight/(1.0+ca.dist);
+            int realDist = ca.dist / (H+1);
+
+            double appleScore = growthWeight / (1.0 + realDist);
+            if (realDist <= 2) {
+                int snLen = st.snakes[ca.si].len();
+                int deficit = appleEatDeficit(appleList[ca.ai], snLen, st.walls, blocked);
+                if (deficit > 0) {
+                    appleScore += P.TRAP_APPLE_EAT_PEN * deficit * 0.5;
+                    if (deficit >= snLen)
+                        appleScore += P.TRAP_APPLE_HARD_PEN * 0.5;
+                }
+            }
+
+            if (H > 1)
+                appleScore += P.APPLE_HEIGHT_BONUS * (H - 1 - appleList[ca.ai].y) / (double)(H-1) * 0.5;
+            score += appleScore;
         }
         for (int i=0;i<st.nSnakes;i++) {
             if (!st.snakes[i].alive||st.snakes[i].owner!=myOwner||snakeAssigned[i]) continue;
             Coord h=st.snakes[i].head(); if (!h.inBounds()) continue;
-            int bestMD=INT_MAX;
-            for (int a=0;a<nApples;a++) bestMD=min(bestMD,h.manhattan(appleList[a]));
-            if (bestMD<INT_MAX) score+=growthWeight*P.FAST_APPLE_FALLBACK/(1.0+bestMD);
+            int bestMD=INT_MAX; int bestAppleY=H;
+            for (int a=0;a<nApples;a++) {
+                int d=h.manhattan(appleList[a]);
+                if (d<bestMD||(d==bestMD&&appleList[a].y<bestAppleY))
+                    { bestMD=d; bestAppleY=appleList[a].y; }
+            }
+            if (bestMD<INT_MAX) {
+                score+=growthWeight*P.FAST_APPLE_FALLBACK/(1.0+bestMD);
+                if (H>1) score+=P.APPLE_HEIGHT_BONUS*(H-1-bestAppleY)/(double)(H-1)*0.25;
+            }
         }
         for (int i=0;i<st.nSnakes;i++) {
             if (!st.snakes[i].alive||st.snakes[i].owner!=opp) continue;
@@ -1030,7 +1151,7 @@ double evaluate(const State& st, int myOwner, bool fast=false,
             if      (nSafe==0) score+=(smallMap?P.NO_MOVES_PEN_SMALL:P.NO_MOVES_PEN);
             else if (nSafe==1) score+=(smallMap?P.ONE_MOVE_PEN_SMALL:P.ONE_MOVE_PEN);
             else if (nSafe==2&&smallMap) score+=P.TWO_MOVES_PEN_SMALL;
-            else if (nSafe>2) score+=P.MOBILITY_BONUS*(nSafe-2); // NEW: mobility bonus
+            else if (nSafe>2) score+=P.MOBILITY_BONUS*(nSafe-2);
         }
         if (smallMap) {
             for (int i=0;i<st.nSnakes;i++) {
@@ -1052,15 +1173,28 @@ double evaluate(const State& st, int myOwner, bool fast=false,
             if (smallMap) tailWeight*=P.FAST_TAIL_SMALL_MULT;
             if (tailDist>0) score+=tailWeight/(1.0+tailDist);
         }
-        if (smallMap) {
-            for (int i=0;i<st.nSnakes;i++) {
-                if (!st.snakes[i].alive||st.snakes[i].owner!=myOwner) continue;
+
+        for (int i=0;i<st.nSnakes;i++) {
+            if (!st.snakes[i].alive||st.snakes[i].owner!=myOwner) continue;
+            if (smallMap) {
+
                 score+=headCollisionPenalty(st,i);
                 score+=edgePenalty(st.snakes[i].head());
+            } else {
+
+                Coord h=st.snakes[i].head(); if (!h.inBounds()) continue;
+                int myLen=st.snakes[i].len();
+                for (int j=0;j<st.nSnakes;j++) {
+                    if (j==i||!st.snakes[j].alive||st.snakes[j].owner==st.snakes[i].owner) continue;
+                    Coord oh=st.snakes[j].head(); if (!oh.inBounds()) continue;
+                    int hd=h.manhattan(oh), oppLen=st.snakes[j].len();
+                    if      (hd<=1) { score+=(myLen<=oppLen)?P.FAST_HEAD_CLOSE_SMALLER:P.FAST_HEAD_CLOSE_BIGGER; }
+                    else if (hd==2) { if (myLen<=oppLen) score+=P.FAST_HEAD_NEAR_SMALLER; }
+                }
             }
         }
     } else {
-        // --- FULL PATH (depth 0, full Voronoi + flood fill) ---
+
         VoronoiResult vr = computeVoronoi(st, blocked, appleList, nApples);
 
         for (int a=0;a<nApples;a++) {
@@ -1069,23 +1203,43 @@ double evaluate(const State& st, int myOwner, bool fast=false,
             int bestOwner   = st.snakes[ai.bestSi].owner;
             int secondOwner = (ai.secondSi>=0)?st.snakes[ai.secondSi].owner:-1;
 
+            int trapDeficit = 0;
+            if (bestOwner == myOwner && ai.bestDist <= 3) {
+
+                int snLen = st.snakes[ai.bestSi].len();
+                trapDeficit = appleEatDeficit(appleList[a], snLen, st.walls, blocked);
+            }
+
+            double heightBonus = 0.0;
+            if (H > 1)
+                heightBonus = P.APPLE_HEIGHT_BONUS * (H - 1 - appleList[a].y) / (double)(H - 1);
+
+            double appleBaseScore = 0.0;
             if (bestOwner==myOwner) {
                 if (ai.secondSi>=0 && secondOwner==opp &&
                     ai.bestDist==ai.secondDist &&
                     st.snakes[ai.secondSi].len()>=st.snakes[ai.bestSi].len())
-                    score += growthWeight*P.VORONOI_APPLE_TIE_LOSE/(1.0+ai.bestDist);
+                    appleBaseScore = growthWeight*P.VORONOI_APPLE_TIE_LOSE/(1.0+ai.bestDist);
                 else if (ai.secondSi<0||ai.secondDist==INT_MAX||secondOwner==myOwner)
-                    score += growthWeight*P.VORONOI_APPLE_CLEAR/(1.0+ai.bestDist);
+                    appleBaseScore = growthWeight*P.VORONOI_APPLE_CLEAR/(1.0+ai.bestDist);
                 else if (ai.bestDist<ai.secondDist-1)
-                    score += growthWeight/(1.0+ai.bestDist);
+                    appleBaseScore = growthWeight/(1.0+ai.bestDist);
                 else if (ai.bestDist<ai.secondDist)
-                    score += growthWeight*P.VORONOI_APPLE_SLIGHT/(1.0+ai.bestDist);
+                    appleBaseScore = growthWeight*P.VORONOI_APPLE_SLIGHT/(1.0+ai.bestDist);
                 else
-                    score += growthWeight*P.VORONOI_APPLE_CONTESTED/(1.0+ai.bestDist);
+                    appleBaseScore = growthWeight*P.VORONOI_APPLE_CONTESTED/(1.0+ai.bestDist);
+
+                if (trapDeficit > 0) {
+                    appleBaseScore += P.TRAP_APPLE_EVAL_PEN * trapDeficit;
+                    if (trapDeficit >= st.snakes[ai.bestSi].len())
+                        appleBaseScore += P.TRAP_APPLE_HARD_PEN;
+                }
+
+                score += appleBaseScore + heightBonus;
             } else {
                 if (ai.secondSi>=0 && st.snakes[ai.secondSi].owner==myOwner) {
                     int myDist=ai.secondDist;
-                    if (myDist<ai.bestDist+2) score+=growthWeight*0.2/(1.0+myDist);
+                    if (myDist<ai.bestDist+2) score+=growthWeight*0.2/(1.0+myDist)+heightBonus*0.3;
                     else                       score+=P.OPP_MAXLEN_THREAT/(1.0+ai.bestDist);
                 } else {
                     score+=P.OPP_MAXLEN_THREAT/(1.0+ai.bestDist);
@@ -1097,14 +1251,22 @@ double evaluate(const State& st, int myOwner, bool fast=false,
 
         for (int i=0;i<st.nSnakes;i++) {
             if (!st.snakes[i].alive||st.snakes[i].owner!=myOwner) continue;
+            double ceW = P.CLOSEST_ENERGY_WEIGHT * (gAppleRich ? P.APPLE_RICH_CLOSEST_MULT : 1.0);
             if (vr.closestEnergy[i]<INT_MAX)
-                score+=P.CLOSEST_ENERGY_WEIGHT*scarcityMult*stallUrgency/(1.0+vr.closestEnergy[i]);
+                score+=ceW*scarcityMult*stallUrgency/(1.0+vr.closestEnergy[i]);
             else {
                 int bfsDist=bfsAppleDist(st.snakes[i].head(),st.walls,blocked,st.apples);
                 if (bfsDist<INT_MAX)
                     score+=P.CLOSEST_ENERGY_FALLBACK*scarcityMult*stallUrgency/(1.0+bfsDist);
-                else
+                else {
+
+                    Coord h=st.snakes[i].head();
+                    if (h.inBounds()) {
+                        int reach=floodFillCount(h,st.walls,blocked);
+                        score += reach * 2.0;
+                    }
                     score+=P.NO_ENERGY_PEN;
+                }
             }
         }
 
@@ -1114,6 +1276,8 @@ double evaluate(const State& st, int myOwner, bool fast=false,
             if (tinyMap) territoryWeight*=1.5;
             if (winning && phase>0.5) territoryWeight*=1.5;
         }
+
+        if (gAppleRich) territoryWeight *= P.APPLE_RICH_TERR_SCALE;
         score += (vr.territory[myOwner]-vr.territory[opp])*territoryWeight;
 
         double trapMult = smallMap ? P.TRAP_MULT_SMALL : 1.0;
@@ -1163,7 +1327,6 @@ double evaluate(const State& st, int myOwner, bool fast=false,
             score+=edgePenalty(st.snakes[i].head());
         }
 
-        // NEW: Mobility bonus for full eval too
         for (int i=0;i<st.nSnakes;i++) {
             if (!st.snakes[i].alive||st.snakes[i].owner!=myOwner) continue;
             int safeMoves[4];
@@ -1175,11 +1338,13 @@ double evaluate(const State& st, int myOwner, bool fast=false,
         }
     }
 
-    // --- Common tail section ---
     double aliveWeight=(phase<0.3)?P.ALIVE_EARLY:((phase<0.7)?P.ALIVE_MID:P.ALIVE_LATE);
     if (winning&&phase>0.5) aliveWeight*=P.ALIVE_WINNING_MULT;
     if (smallMap)           aliveWeight*=P.ALIVE_SMALL_MULT;
     score += (myAlive-oppAlive)*aliveWeight;
+
+    score += myAlive  * P.ALIVE_OWN_PER_SNAKE;
+    score -= oppAlive * P.ALIVE_OPP_PER_SNAKE;
 
     int myMaxLen=0, oppMaxLen=0;
     for (int i=0;i<st.nSnakes;i++) {
@@ -1202,9 +1367,6 @@ double evaluate(const State& st, int myOwner, bool fast=false,
     return score;
 }
 
-// =============================================================
-// VALID MOVES
-// =============================================================
 int validMovesCount(const State& st, int si, int out[]) {
     const Snake& sn = st.snakes[si];
     if (!sn.alive) return 0;
@@ -1251,16 +1413,68 @@ int greedyMove(const State& st, int si, const BitBoard* preBlocked=nullptr) {
     if (nm==0) return st.snakes[si].facing();
     Coord h=st.snakes[si].head();
     if (!h.inBounds()) return moves[0];
+    int snLen = st.snakes[si].len();
+
+    bool anyAppleReachable = false;
+    if (st.apples.popcount() > 0) {
+        int dist = bfsAppleDist(h, st.walls, blocked, st.apples);
+        anyAppleReachable = (dist < INT_MAX);
+    }
+    if (!anyAppleReachable) {
+
+        int bestMove = moves[0]; int bestReach = -1;
+        for (int mi=0;mi<nm;mi++) {
+            Coord nh=h+DIRS[moves[mi]];
+            if (!nh.inBounds()) continue;
+            BitBoard tmpBlk=blocked; tmpBlk.setC(h);
+            int reach=floodFillCount(nh,st.walls,tmpBlk);
+            if (reach>bestReach) { bestReach=reach; bestMove=moves[mi]; }
+        }
+        return bestMove;
+    }
 
     int bestMove=moves[0]; double bestScore=-1e9;
     for (int mi=0;mi<nm;mi++) {
         Coord nh=h+DIRS[moves[mi]];
         double sc=0;
-        if (nh.inBounds()&&st.apples.tstC(nh)) sc+=P.GREEDY_APPLE_IMMEDIATE;
-        int bestMD=INT_MAX;
-        for (int y=0;y<H;y++) for (int x=0;x<W;x++)
-            if (st.apples.tstC({x,y})) bestMD=min(bestMD,(nh.inBounds()?nh.manhattan({x,y}):100));
-        if (bestMD<INT_MAX) sc+=bestMD*P.GREEDY_APPLE_DIST;
+
+        bool willEat = nh.inBounds() && st.apples.tstC(nh);
+        if (willEat) {
+
+            int deficit = appleEatDeficit(nh, snLen, st.walls, blocked);
+            if (deficit > 0) {
+
+                sc += P.TRAP_APPLE_EAT_PEN * deficit;
+                if (deficit >= snLen)
+                    sc += P.TRAP_APPLE_HARD_PEN;
+            } else {
+
+                sc += P.GREEDY_APPLE_IMMEDIATE;
+            }
+
+            int heightH = max(1, H - 1);
+            sc += P.GREEDY_APPLE_HEIGHT_BONUS * (heightH - nh.y) / (double)heightH;
+        }
+
+        if (!willEat) {
+            int bestMD = INT_MAX;
+            int bestAppleY = H;
+            for (int y=0;y<H;y++) for (int x=0;x<W;x++) {
+                if (!st.apples.tstC({x,y})) continue;
+                int d = nh.inBounds() ? nh.manhattan({x,y}) : 100;
+                if (d < bestMD) { bestMD = d; bestAppleY = y; }
+                else if (d == bestMD && y < bestAppleY) bestAppleY = y;
+            }
+            if (bestMD < INT_MAX) {
+
+                double distPenMult = (st.turn < 15) ? 0.4 : 1.0;
+                sc += bestMD * P.GREEDY_APPLE_DIST * distPenMult;
+
+                int heightH = max(1, H - 1);
+                sc += P.GREEDY_APPLE_HEIGHT_BONUS * (heightH - bestAppleY) / (double)heightH * 0.4;
+            }
+        }
+
         if (nh.inBounds()) {
             if (cellSupported(nh.x,nh.y,st.walls,st.apples,blocked)) sc+=P.GREEDY_SUPPORT;
             if (moves[mi]==DIR_UP) sc+=P.GREEDY_UP_PEN;
@@ -1306,24 +1520,39 @@ int smartOppMove(const State& st, int si, const BitBoard& blocked) {
     return bestMove;
 }
 
-// =============================================================
-// BEAM SEARCH
-// CHANGE: Indirect sort (sort indices, not full BeamNodes)
-//         → avoids O(N * sizeof(BeamNode)) data movement per sort
-// CHANGE: Single simulation per combo (no more double-sim)
-// =============================================================
+int smarterOppMove(const State& st, int si, const BitBoard& blocked,
+                   const int myMoves[], const int myIdxArr[], int nMy) {
+    int moves[4];
+    int nm = validMovesSafe(st, si, blocked, moves);
+    if (nm <= 1) return (nm == 1) ? moves[0] : st.snakes[si].facing();
+
+    int bestMove = moves[0]; double bestScore = -1e9;
+    int oppOwner = st.snakes[si].owner;
+    for (int mi = 0; mi < nm; mi++) {
+        State simSt = st;
+        int allMoves[MAX_SNAKES] = {};
+        for (int i = 0; i < st.nSnakes; i++) allMoves[i] = st.snakes[i].facing();
+
+        for (int m = 0; m < nMy; m++) allMoves[myIdxArr[m]] = myMoves[m];
+        allMoves[si] = moves[mi];
+        simulate(simSt, allMoves);
+        double sc = evaluate(simSt, oppOwner, true);
+        if (sc > bestScore) { bestScore = sc; bestMove = moves[mi]; }
+    }
+    return bestMove;
+}
+
 struct BeamNode {
     State state;
     int   firstMoves[MAX_SNAKES];
     double score;
 };
 
-// CHANGE: Use static pools + index vectors to avoid moving large nodes
 static const int MAX_BEAM_POOL = 300;
 static BeamNode beamPoolA[MAX_BEAM_POOL];
 static BeamNode beamPoolB[MAX_BEAM_POOL];
-static int      beamIdxA[MAX_BEAM_POOL];   // sorted indices into beamPoolA
-static int      beamIdxB[MAX_BEAM_POOL];   // sorted indices into beamPoolB
+static int      beamIdxA[MAX_BEAM_POOL];
+static int      beamIdxB[MAX_BEAM_POOL];
 static int      beamSzA = 0;
 static int      beamSzB = 0;
 
@@ -1348,22 +1577,105 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
     else if (totalAlive<=4) { beamWidth=P.BEAM_WIDTH_FEW;   beamDepthMax=P.BEAM_DEPTH_FEW;   comboLimit=P.BEAM_COMBO_FEW; }
     else if (totalAlive<=6) { beamWidth=P.BEAM_WIDTH_MED;   beamDepthMax=P.BEAM_DEPTH_MED;   comboLimit=P.BEAM_COMBO_MED; }
     else                    { beamWidth=P.BEAM_WIDTH_MANY;  beamDepthMax=P.BEAM_DEPTH_MANY;  comboLimit=P.BEAM_COMBO_MANY; }
+
     beamWidth = min(beamWidth, MAX_BEAM_POOL);
 
     BitBoard initBlocked = initSt.walls | initSt.bodyBoardConst();
 
-    // Generate my move combos
+    Coord bsAppleList[200];
+    int   bsNApples = 0;
+    for (int y=0;y<H&&bsNApples<200;y++)
+        for (int x=0;x<W&&bsNApples<200;x++)
+            if (initSt.apples.tstC({x,y})) bsAppleList[bsNApples++]={x,y};
+
+    int bsAppleAssign[MAX_SNAKES];
+    int bsPreferDir  [MAX_SNAKES];
+    fill(bsAppleAssign, bsAppleAssign+MAX_SNAKES, -1);
+    fill(bsPreferDir,   bsPreferDir  +MAX_SNAKES, -1);
+
+    if (bsNApples > 0) {
+        assignApplesToSnakes(initSt, myOwner, bsAppleList, bsNApples, bsAppleAssign);
+        for (int mi = 0; mi < nMy; mi++) {
+            int si = myIdx[mi];
+            int ai = bsAppleAssign[si];
+            if (ai >= 0) {
+                int d = bfsDir(initSt.snakes[si].head(), bsAppleList[ai],
+                               initSt.walls, initBlocked);
+                bsPreferDir[mi] = d;
+            }
+        }
+        if (gAppleRich) {
+            cerr << "  [AppleRich] assignments:";
+            for (int mi=0;mi<nMy;mi++) {
+                int si=myIdx[mi];
+                cerr<<" s"<<initSt.snakes[si].id<<"→a"<<bsAppleAssign[si]
+                    <<"(dir="<<(bsPreferDir[mi]>=0?DIR_NAMES[bsPreferDir[mi]]:"?")<<")";
+            }
+            cerr << endl;
+        }
+    }
     vector<vector<int>> combos = {{}};
     for (int mi=0;mi<nMy;mi++) {
         int moves[4];
         int nm=validMovesSafe(initSt,myIdx[mi],initBlocked,moves);
+
+        int sortedMoves[4];
+        {
+
+            pair<int,int> ranked[4];
+            for (int j=0;j<nm;j++) {
+                Coord nh=initSt.snakes[myIdx[mi]].head()+DIRS[moves[j]];
+                int sc=0;
+                if (nh.inBounds()&&initSt.apples.tstC(nh)) sc=10000;
+                else if (nh.inBounds()&&bsNApples>0) {
+                    int minD=INT_MAX;
+                    for (int a=0;a<bsNApples;a++) minD=min(minD,nh.manhattan(bsAppleList[a]));
+                    if (minD<INT_MAX) sc=1000-minD;
+                }
+                ranked[j]={-sc,moves[j]};
+            }
+
+            for (int a=1;a<nm;a++) {
+                auto key=ranked[a];
+                int b=a-1;
+                while (b>=0 && ranked[b].first > key.first) { ranked[b+1]=ranked[b]; b--; }
+                ranked[b+1]=key;
+            }
+            for (int j=0;j<nm;j++) sortedMoves[j]=ranked[j].second;
+        }
         vector<vector<int>> next;
         for (auto& c : combos)
-            for (int j=0;j<nm;j++) { auto nc=c; nc.push_back(moves[j]); next.push_back(nc); }
+            for (int j=0;j<nm;j++) { auto nc=c; nc.push_back(sortedMoves[j]); next.push_back(nc); }
         combos=next;
     }
 
-    // Generate opp combos
+    if ((int)combos.size() > MAX_BEAM_POOL) {
+
+        vector<pair<double,int>> comboScores(combos.size());
+        for (int ci=0;ci<(int)combos.size();ci++) {
+            double sc=0;
+            for (int mi=0;mi<nMy&&mi<(int)combos[ci].size();mi++) {
+                int si=myIdx[mi];
+                Coord nh=initSt.snakes[si].head()+DIRS[combos[ci][mi]];
+                if (nh.inBounds()&&initSt.apples.tstC(nh)) sc+=1000;
+                if (nh.inBounds()&&!initBlocked.tstC(nh))  sc+=20;
+                if (nh.inBounds()&&cellSupported(nh.x,nh.y,initSt.walls,initSt.apples,initBlocked)) sc+=5;
+
+                for (int j=0;j<initSt.nSnakes;j++) {
+                    if (!initSt.snakes[j].alive||initSt.snakes[j].owner==myOwner) continue;
+                    Coord oh=initSt.snakes[j].head(); if (!oh.inBounds()||!nh.inBounds()) continue;
+                    if (nh.manhattan(oh)<=1 && initSt.snakes[si].len()<=initSt.snakes[j].len())
+                        sc-=600;
+                }
+            }
+            comboScores[ci]={sc,ci};
+        }
+        sort(comboScores.begin(),comboScores.end(),[](auto& a,auto& b){return a.first>b.first;});
+        vector<vector<int>> pruned; pruned.reserve(MAX_BEAM_POOL);
+        for (int ci=0;ci<MAX_BEAM_POOL;ci++) pruned.push_back(combos[comboScores[ci].second]);
+        combos=pruned;
+        cerr<<"  [comboPrune] "<<comboScores.size()<<"→"<<MAX_BEAM_POOL<<endl;
+    }
     int oppComboLimit=smallMap?P.OPP_COMBO_LIMIT_SMALL:P.OPP_COMBO_LIMIT;
     vector<vector<int>> oppCombos = {{}};
     for (int oi=0;oi<nOpp;oi++) {
@@ -1393,19 +1705,16 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
 
     bool useFullEval=(int)combos.size()*(int)oppCombos.size()<=300||smallMap;
     bool useMinimax =(int)oppCombos.size()>1 && elapsed(t0)<budgetMs-20;
-    constexpr int64_t TIMEOUT_MARGIN=8;
+    constexpr int64_t TIMEOUT_MARGIN=5;
 
-    // Pre-compute greedy opp combo (used for state propagation)
     int greedyOppMoves[MAX_SNAKES]={};
     for (int oi=0;oi<nOpp;oi++)
         greedyOppMoves[oi]=greedyMove(initSt,oppIdx[oi],&initBlocked);
 
-    // ------- Level 0: Evaluate all my combos -------
     for (auto& combo : combos) {
         if (elapsed(t0)>budgetMs-TIMEOUT_MARGIN) break;
         if (beamSzA>=MAX_BEAM_POOL) break;
 
-        // CHANGE: Single simulation for state propagation (greedy opp)
         int allMovesGreedy[MAX_SNAKES]={};
         for (int i=0;i<initSt.nSnakes;i++) allMovesGreedy[i]=-1;
         for (int i=0;i<nMy;i++)  allMovesGreedy[myIdx[i]]=combo[i];
@@ -1413,23 +1722,21 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
 
         BeamNode& node = beamPoolA[beamSzA];
         node.state = initSt;
-        simulate(node.state, allMovesGreedy); // single sim for state storage
+        simulate(node.state, allMovesGreedy);
 
-        // Compute worst-case score via minimax
         double worstScore=1e9;
         if (useMinimax) {
-            // Score vs greedy opp first (already simulated above)
+
             double greedyScore = evaluate(node.state, myOwner, !useFullEval, &initSt, stallUrgency, &hist);
             worstScore = greedyScore;
 
-            // Now try other opp combos
             for (auto& oppCombo : oppCombos) {
                 if (elapsed(t0)>budgetMs-TIMEOUT_MARGIN) break;
-                // Check if this is the same as greedy
+
                 bool isGreedy=true;
                 for (int oi=0;oi<nOpp&&oi<(int)oppCombo.size();oi++)
                     if (oppCombo[oi]!=greedyOppMoves[oi]) { isGreedy=false; break; }
-                if (isGreedy) continue; // already scored
+                if (isGreedy) continue;
 
                 State simSt=initSt;
                 int allMoves[MAX_SNAKES]={};
@@ -1451,13 +1758,11 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
         beamSzA++;
     }
 
-    // CHANGE: Sort indices only (no node movement)
     sort(beamIdxA, beamIdxA+beamSzA, [](int a, int b){
         return beamPoolA[a].score > beamPoolA[b].score;
     });
     if (beamSzA > beamWidth) beamSzA = beamWidth;
 
-    // Optional re-evaluation of top-K with full eval
     if (!useFullEval && elapsed(t0) < budgetMs-25) {
         int reEvalCount = min(beamSzA, P.REEVAL_TOP_K);
         for (int i=0;i<reEvalCount;i++) {
@@ -1469,7 +1774,6 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
         });
     }
 
-    // ------- Deeper levels -------
     for (int depth=1; depth<beamDepthMax; depth++) {
         if (elapsed(t0)>budgetMs-TIMEOUT_MARGIN) break;
         beamSzB=0;
@@ -1489,28 +1793,85 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
             }
             if (cNMy==0) continue;
 
-            // Build my combos for this node
             vector<vector<int>> cCombos={{}};
             for (int mi=0;mi<cNMy;mi++) {
                 int mv[4];
                 int nm=validMovesSafe(node.state,cMyIdx[mi],nodeBlocked,mv);
-                vector<vector<int>> next;
-                for (auto& c : cCombos)
-                    for (int j=0;j<nm;j++) { auto nc=c; nc.push_back(mv[j]); next.push_back(nc); }
-                cCombos=next;
+
+                if (gAppleRich && bsNApples > 0) {
+
+                    int si = cMyIdx[mi];
+                    Coord h = node.state.snakes[si].head();
+                    int prefD = -1;
+                    if (h.inBounds()) {
+                        int bestScore = INT_MAX;
+                        for (int j=0;j<nm;j++) {
+                            Coord nh = h + DIRS[mv[j]];
+                            if (!nh.inBounds()) continue;
+                            if (node.state.apples.tstC(nh)) { prefD=mv[j]; bestScore=-1; break; }
+                            int minD = INT_MAX;
+                            for (int a=0;a<bsNApples;a++) minD=min(minD,nh.manhattan(bsAppleList[a]));
+                            if (minD < bestScore) { bestScore=minD; prefD=mv[j]; }
+                        }
+                    }
+                    if (prefD >= 0) {
+                        int ordered[4]; int nOrdered=0;
+                        for (int j=0;j<nm;j++) if (mv[j]==prefD) { ordered[nOrdered++]=mv[j]; break; }
+                        if (nOrdered==0 && nm>0) ordered[nOrdered++]=mv[0];
+                        for (int j=0;j<nm && nOrdered<2;j++) if (mv[j]!=prefD) ordered[nOrdered++]=mv[j];
+                        vector<vector<int>> next;
+                        for (auto& c : cCombos)
+                            for (int j=0;j<nOrdered;j++) { auto nc=c; nc.push_back(ordered[j]); next.push_back(nc); }
+                        cCombos=next;
+                    } else {
+                        vector<vector<int>> next;
+                        for (auto& c : cCombos)
+                            for (int j=0;j<nm;j++) { auto nc=c; nc.push_back(mv[j]); next.push_back(nc); }
+                        cCombos=next;
+                    }
+                } else {
+                    vector<vector<int>> next;
+                    for (auto& c : cCombos)
+                        for (int j=0;j<nm;j++) { auto nc=c; nc.push_back(mv[j]); next.push_back(nc); }
+                    cCombos=next;
+                }
                 if ((int)cCombos.size()>comboLimit*2) break;
             }
 
-            // Sort combos by quick heuristic before truncating
             if ((int)cCombos.size()>comboLimit) {
                 vector<pair<double,int>> scored(cCombos.size());
                 for (int ci=0;ci<(int)cCombos.size();ci++) {
                     double sc=0;
                     for (int mi=0;mi<cNMy&&mi<(int)cCombos[ci].size();mi++) {
                         Coord nh=node.state.snakes[cMyIdx[mi]].head()+DIRS[cCombos[ci][mi]];
-                        if (nh.inBounds()&&node.state.apples.tstC(nh)) sc+=1000;
-                        if (nh.inBounds()&&!nodeBlocked.tstC(nh)) sc+=10;
-                        if (nh.inBounds()&&cellSupported(nh.x,nh.y,node.state.walls,node.state.apples,nodeBlocked)) sc+=5;
+                        if (nh.inBounds()&&node.state.apples.tstC(nh)) {
+
+                            int snLen = node.state.snakes[cMyIdx[mi]].len();
+                            int deficit = appleEatDeficit(nh, snLen,
+                                                          node.state.walls, nodeBlocked);
+                            if (deficit > 0) {
+                                sc += P.TRAP_APPLE_COMBO_PEN;
+                                if (deficit >= snLen)
+                                    sc += P.TRAP_APPLE_HARD_PEN * 0.5;
+                            } else {
+                                sc += 1000;
+
+                                if (H > 1)
+                                    sc += 40.0 * (H - 1 - nh.y) / (double)(H - 1);
+                            }
+                        } else {
+                            if (nh.inBounds()&&!nodeBlocked.tstC(nh)) sc+=10;
+                            if (nh.inBounds()&&cellSupported(nh.x,nh.y,node.state.walls,node.state.apples,nodeBlocked)) sc+=5;
+
+                            if (nh.inBounds() && bsNApples > 0) {
+
+                                int bestY = H;
+                                for (int a=0;a<bsNApples;a++)
+                                    if (bsAppleList[a].y < bestY) bestY = bsAppleList[a].y;
+                                if (nh.y < node.state.snakes[cMyIdx[mi]].head().y)
+                                    sc += 3;
+                            }
+                        }
                     }
                     scored[ci]={sc,ci};
                 }
@@ -1521,12 +1882,24 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
             }
 
             int cOppMv[MAX_SNAKES];
-            for (int i=0;i<cNOpp;i++)
-                cOppMv[i]=greedyMove(node.state,cOppIdx[i]);
+
+            bool useSmarter = (elapsed(t0) < budgetMs * 2 / 3) && (cNOpp <= 2);
+            for (int i = 0; i < cNOpp; i++) {
+                if (useSmarter) {
+
+                    int preferredMoves[MAX_SNAKES] = {};
+                    for (int m = 0; m < cNMy; m++)
+                        preferredMoves[m] = node.state.snakes[cMyIdx[m]].facing();
+                    cOppMv[i] = smarterOppMove(node.state, cOppIdx[i], nodeBlocked,
+                                               preferredMoves, cMyIdx, cNMy);
+                } else {
+                    cOppMv[i] = greedyMove(node.state, cOppIdx[i]);
+                }
+            }
 
             for (auto& combo : cCombos) {
                 if (beamSzB>=MAX_BEAM_POOL) { timeout=true; break; }
-                if ((evalCount++&15)==0 && elapsed(t0)>budgetMs-TIMEOUT_MARGIN)
+                if ((evalCount++&3)==0 && elapsed(t0)>budgetMs-TIMEOUT_MARGIN)
                     { timeout=true; break; }
 
                 BeamNode& child=beamPoolB[beamSzB];
@@ -1547,14 +1920,11 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
 
         if (beamSzB==0) break;
 
-        // CHANGE: Sort indices, not nodes
         sort(beamIdxB, beamIdxB+beamSzB, [](int a, int b){
             return beamPoolB[a].score > beamPoolB[b].score;
         });
         if (beamSzB>beamWidth) beamSzB=beamWidth;
 
-        // CHANGE: Compact swap — copy only kept nodes into pool A using index remap
-        // (We copy beamWidth nodes from poolB into poolA, then swap roles)
         int newSzA = beamSzB;
         for (int i=0;i<newSzA;i++) {
             beamPoolA[i] = beamPoolB[beamIdxB[i]];
@@ -1564,13 +1934,12 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
     }
 
     if (beamSzA==0) {
-        // Fallback to greedy
+
         vector<int> r;
         for (int i=0;i<nMy;i++) r.push_back(greedyMove(initSt,myIdx[i]));
         return r;
     }
 
-    // Optional trapped penalty for small maps
     if (smallMap && beamSzA>1) {
         for (int bi=0;bi<beamSzA;bi++) {
             BeamNode& node=beamPoolA[beamIdxA[bi]];
@@ -1596,9 +1965,6 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
     return result;
 }
 
-// =============================================================
-// I/O PARSING
-// =============================================================
 vector<Coord> parseBody(const string& s) {
     vector<Coord> r;
     string c=s;
@@ -1612,9 +1978,6 @@ vector<Coord> parseBody(const string& s) {
     return r;
 }
 
-// =============================================================
-// DEBUG MAP DISPLAY
-// =============================================================
 void printMap(const State& st, ostream& os=cerr) {
     char grid[MAX_H][MAX_W];
     for (int y=0;y<H;y++) for (int x=0;x<W;x++) {
@@ -1640,9 +2003,6 @@ void printMap(const State& st, ostream& os=cerr) {
     os<<endl;
 }
 
-// =============================================================
-// MAIN
-// =============================================================
 int main(int argc, char* argv[]) {
     for (int i=1;i<argc;i++) {
         string arg=argv[i];
@@ -1657,7 +2017,7 @@ int main(int argc, char* argv[]) {
     cin>>H;    cin.ignore();
 
     totalCells = W*H;
-    smallMap   = (W<=15&&H<=15)||totalCells<=200;
+    smallMap   = (W<=20&&H<=15)||totalCells<=250;
     tinyMap    = (W<=10&&H<=10)||totalCells<=100;
 
     BitBoard walls;
@@ -1690,6 +2050,8 @@ int main(int argc, char* argv[]) {
         turn++;
 
         int nrg; cin>>nrg; cin.ignore();
+        gAppleCount = nrg;
+        gAppleRich  = (nrg >= P.APPLE_RICH_THRESHOLD);
         BitBoard apples;
         for (int i=0;i<nrg;i++) {
             int x,y; cin>>x>>y; cin.ignore();
@@ -1712,43 +2074,76 @@ int main(int argc, char* argv[]) {
             auto body=parseBody(bodyStr);
             if (body.empty()) continue;
             st.snakes[si].alive=true;
-            // CHANGE: fill SnakeBody ring buffer from parsed vector
+
             st.snakes[si].body.clear();
             for (auto& c : body) st.snakes[si].body.push_back(c);
             aliveIds.insert(sid);
         }
 
-        // History tracking
         for (int i=0;i<totalSnakes;i++) {
             if (st.snakes[i].alive && st.snakes[i].owner==0) {
                 hist[st.snakes[i].id].push_back(st.snakes[i].head());
-                if (hist[st.snakes[i].id].size()>6) hist[st.snakes[i].id].pop_front();
+
+                if (hist[st.snakes[i].id].size()>15) hist[st.snakes[i].id].pop_front();
             } else {
                 hist.erase(st.snakes[i].id);
             }
         }
 
-        // Stall detection
-        int currentMyScore=st.scoreFor(0);
-        if (currentMyScore==previousMyScore && turn>1) stallCounter++;
-        else { stallCounter=0; previousMyScore=currentMyScore; }
+        {
+            int currentMyScore=st.scoreFor(myId);
+            bool anyAte = (currentMyScore > previousMyScore);
+            if (anyAte)        { stallCounter=0; }
+            else if (turn>1)   { stallCounter++; }
+            previousMyScore=currentMyScore;
+        }
 
         double stallUrgency=1.0;
-        if      (stallCounter>=20) stallUrgency=2.0;
-        else if (stallCounter>=10) stallUrgency=1.6;
-        else if (stallCounter>=5)  stallUrgency=1.3;
+        if      (stallCounter>=25) stallUrgency=2.5;
+        else if (stallCounter>=15) stallUrgency=2.0;
+        else if (stallCounter>=8)  stallUrgency=1.6;
+        else if (stallCounter>=3)  stallUrgency=1.3;
 
-        int64_t budget=(turn==1)?900:45;
+        int64_t budget=(turn==1)?935:45;
 
         cerr<<"\n=== T"<<turn<<" "<<W<<"x"<<H;
         int myS=st.scoreFor(0), opS=st.scoreFor(1), delta=myS-opS;
         cerr<<" "<<myS<<"v"<<opS<<" ("; if(delta>0) cerr<<"+"; cerr<<delta<<")";
-        cerr<<" E="<<nrg;
+        cerr<<" E="<<nrg<<(gAppleRich?" [APPLE-RICH]":"");
         int turnsLeft=200-turn;
         string phase=(turnsLeft>140)?"EXPAND":((turnsLeft>60)?"CONTROL":"CONSERVE");
         if (delta<-2&&turnsLeft<=80) phase="AGGRESS";
         cerr<<" "<<phase<<" | STALL="<<stallCounter<<" (x"<<stallUrgency<<") ==="<<endl;
-        printMap(st);
+
+        if (stallCounter > 30) {
+            cerr << "  [STALL OVERRIDE] pure BFS escape (stall=" << stallCounter << ")" << endl;
+            BitBoard blocked = st.walls | st.bodyBoardConst();
+            string out;
+            for (int i = 0; i < spp; i++) {
+                int sid = myIds[i];
+                if (!aliveIds.count(sid)) continue;
+                int si = id2idx[sid];
+                if (!st.snakes[si].alive) continue;
+
+                int dir = -1;
+                int bestDist = INT_MAX;
+                Coord bestApple(-1,-1);
+                for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+                    if (!st.apples.tstC({x,y})) continue;
+                    int d = st.snakes[si].head().manhattan({x,y});
+                    if (d < bestDist) { bestDist = d; bestApple = {x,y}; }
+                }
+                if (bestApple.inBounds())
+                    dir = bfsDir(st.snakes[si].head(), bestApple, st.walls, blocked);
+                if (dir < 0) dir = greedyMove(st, si, &blocked);
+                if (dir < 0 || dir > 3) dir = 0;
+                if (!out.empty()) out += ";";
+                out += to_string(sid) + " " + DIR_NAMES[dir];
+            }
+            cerr << "  => " << out << " (stall override, " << elapsed(t0) << "ms)" << endl;
+            cout << (out.empty() ? "WAIT" : out) << endl;
+            continue;
+        }
 
         vector<int> bestMoves=beamSearch(st,0,budget,stallUrgency,hist);
 
