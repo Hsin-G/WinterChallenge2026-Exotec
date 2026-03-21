@@ -131,6 +131,36 @@ PARAM_DEFS = {
 
     # Beam search
     "BEAM_TRAPPED_PEN":          (-50000.0, 0.0, -5000.0),
+
+    # Trap-apple penalties
+    "TRAP_APPLE_EAT_PEN":        (-3000.0,  0.0,  -550.0),
+    "TRAP_APPLE_EVAL_PEN":       (-2000.0,  0.0,  -400.0),
+    "TRAP_APPLE_HARD_PEN":       (-6000.0,  0.0, -2200.0),
+    "TRAP_APPLE_COMBO_PEN":      (-3000.0,  0.0,  -900.0),
+
+    # Height bonuses
+    "GREEDY_APPLE_HEIGHT_BONUS": (0.0,    200.0,    30.0),
+    "APPLE_HEIGHT_BONUS":        (0.0,    200.0,    25.0),
+
+    # Fast-eval (beam fallback) tuning
+    "FAST_APPLE_FALLBACK":       (0.0,      1.0,    0.70),
+    "FAST_OPP_NEAR_APPLE":       (-400.0,   0.0,   -80.0),
+    "FAST_TRAP_SEVERE":          (-1000.0,  0.0,  -200.0),
+    "FAST_TRAP_MILD":            (-200.0,   0.0,   -30.0),
+    "FAST_TAIL_WINNING":         (0.0,    200.0,    35.0),
+    "FAST_TAIL_NO_FOOD":         (0.0,    150.0,    25.0),
+    "FAST_TAIL_DEFAULT":         (0.0,     60.0,     8.0),
+    "FAST_TAIL_SMALL_MULT":      (0.5,      6.0,     1.5),
+    "FAST_HEAD_CLOSE_SMALLER":   (-3000.0,  0.0,  -900.0),
+    "FAST_HEAD_CLOSE_BIGGER":    (0.0,    800.0,   150.0),
+    "FAST_HEAD_NEAR_SMALLER":    (-1000.0,  0.0,  -200.0),
+
+    # Apple-rich regime
+    "APPLE_RICH_APPLE_MULT":     (0.5,      8.0,     2.5),
+    "APPLE_RICH_SPREAD_PEN":     (0.0,    400.0,    90.0),
+    "APPLE_RICH_SPREAD_DIST":    (1.0,     15.0,     5.0),
+    "APPLE_RICH_TERR_SCALE":     (0.0,      2.0,    0.55),
+    "APPLE_RICH_CLOSEST_MULT":   (0.5,      8.0,     2.0),
 }
 
 
