@@ -179,6 +179,60 @@ def parse_args():
 
 
 # ---------------------------------------------------------------------------
+# Verbose output helper
+# ---------------------------------------------------------------------------
+
+_BOT_STREAM_LABELS = [
+    "Standard Error Stream bot1:",
+    "Standard Output Stream bot1:",
+    "Standard Error Stream bot2:",
+    "Standard Output Stream bot2:",
+]
+
+
+def _format_bot_streams(stdout):
+    """
+    Parse per-bot stream sections emitted by HeadlessRunner and return a
+    formatted string ready to be written to the log.
+
+    HeadlessRunner emits blocks in the form:
+        Standard Error Stream bot1:
+        <lines…>
+        Standard Output Stream bot1:
+        <lines…>
+        Standard Error Stream bot2:
+        <lines…>
+        Standard Output Stream bot2:
+        <lines…>
+
+    Lines before the first section header (e.g. the SCORES line) are ignored.
+    """
+    if not stdout:
+        return ""
+
+    sections = {label: [] for label in _BOT_STREAM_LABELS}
+    current = None
+    for line in stdout.rstrip("\n").split("\n"):
+        if line in sections:
+            current = line
+        elif current is not None:
+            sections[current].append(line)
+
+    # Only emit output if at least one section header was found in the output.
+    # (Sections with no content lines are still written to confirm the bot
+    # produced no output/errors for that stream.)
+    if current is None:
+        return ""
+
+    out = []
+    for label in _BOT_STREAM_LABELS:
+        out.append(f"  {label}\n")
+        for line in sections[label]:
+            out.append(f"  {line}\n")
+    return "".join(out)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -267,14 +321,10 @@ def main():
             print(result_line, end="")
 
             if args.verbose:
-                if stdout:
-                    log.write("  --- stdout ---\n")
-                    for line in stdout.strip().split("\n"):
-                        log.write(f"  {line}\n")
-                if stderr:
-                    log.write("  --- stderr ---\n")
-                    for line in stderr.strip().split("\n"):
-                        log.write(f"  {line}\n")
+                verbose_block = _format_bot_streams(stdout)
+                if verbose_block:
+                    log.write(verbose_block)
+                    print(verbose_block, end="")
 
         # Summary
         summary = (

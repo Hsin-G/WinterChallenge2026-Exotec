@@ -104,11 +104,21 @@ The log file is plain text and contains:
    time.
 2. **Per-match block** — match number, seed used, outcome
    (`BOT1_WIN` / `BOT2_WIN` / `DRAW` / `ERROR`), raw scores, and elapsed
-   time.  When `--verbose` is set, the simulator's stdout/stderr is also
-   included.
+   time.  When `--verbose` is set, each match block also includes the
+   per-bot stderr and stdout streams in the following format:
+   ```
+   Standard Error Stream bot1:
+   <error output from bot 1>
+   Standard Output Stream bot1:
+   <output from bot 1>
+   Standard Error Stream bot2:
+   <error output from bot 2>
+   Standard Output Stream bot2:
+   <output from bot 2>
+   ```
 3. **Summary** — total matches, wins per bot, draws, and error count.
 
-Example output:
+Example output (with `--verbose`):
 
 ```
 ======================================================================
@@ -127,11 +137,14 @@ Example output:
   Result : BOT1_WIN
   Score  : Bot1=3  Bot2=1
   Time   : 4.32s
-
-[Match 2/5] seed=43
-  Result : DRAW
-  Score  : Bot1=2  Bot2=2
-  Time   : 3.91s
+  Standard Error Stream bot1:
+  <error output from bot 1>
+  Standard Output Stream bot1:
+  <output from bot 1>
+  Standard Error Stream bot2:
+  <error output from bot 2>
+  Standard Output Stream bot2:
+  <output from bot 2>
 
 ...
 
