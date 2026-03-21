@@ -19,10 +19,10 @@ using namespace std;
 
 struct Params {
 
-    double  LEN_WEIGHT              = 1000.0;
-    double  LEN_WEIGHT_SMALL        = 1200.0;
-    double  LEN_WEIGHT_WINNING_LATE = 1800.0;
-    double  LEN_WEIGHT_LOSING_LATE  = 800.0;
+    double  LEN_WEIGHT              = 2000.0;
+    double  LEN_WEIGHT_SMALL        = 2200.0;
+    double  LEN_WEIGHT_WINNING_LATE = 2800.0;
+    double  LEN_WEIGHT_LOSING_LATE  = 1800.0;
 
     double  GROWTH_BASE             = 600.0;
     double  SCARCITY_MULT_LOW       = 8.0;
@@ -35,7 +35,7 @@ struct Params {
     double  VORONOI_APPLE_LOSE      = -0.5;
     double  VORONOI_APPLE_TIE_LOSE  = -0.5;
 
-    double  EAT_BONUS               = 1500.0;
+    double  EAT_BONUS               = 2500.0;
 
     double  TERRITORY_WEIGHT              = 8.0;
     double  TERRITORY_WEIGHT_SMALL        = 15.0;
@@ -91,7 +91,7 @@ struct Params {
     double  GRAVITY_RISK_SMALL           = 5.0;
     double  GRAVITY_RISK_LARGE           = 3.0;
 
-    double  ANTI_TRAMPOLINE         = -1200.0;
+    double  ANTI_TRAMPOLINE         = -1750.0;
     double  STALL_REVISIT           = -600.0;
     double  STALL_URGENCY_CAP       = 1.3;
 
@@ -122,7 +122,7 @@ struct Params {
     double  GREEDY_APPLE_DIST        = -120.0;
     double  GREEDY_SUPPORT           = 80.0;
 
-    double  GREEDY_UP_PEN            = 0.0;
+    double  GREEDY_UP_PEN            = -120.0;
     double  GREEDY_BLOCKED_PEN       = -2500.0;
     double  GREEDY_HEAD_COLL_PEN     = -900.0;
     double  GREEDY_HEAD_COLL_PEN_SMALL = -1800.0;
@@ -148,31 +148,31 @@ struct Params {
     double FAST_TAIL_DEFAULT        = 8.0;
     double FAST_TAIL_SMALL_MULT     = 1.5;
 
-    int BEAM_WIDTH_TINY = 100;
-    int BEAM_DEPTH_TINY = 8;
-    int BEAM_COMBO_TINY = 20;
-    int BEAM_WIDTH_SMALL = 150;
-    int BEAM_DEPTH_SMALL = 7;
-    int BEAM_COMBO_SMALL = 24;
-    int BEAM_WIDTH_FEW = 180;
-    int BEAM_DEPTH_FEW = 6;
-    int BEAM_COMBO_FEW = 27;
-    int BEAM_WIDTH_MED = 120;
-    int BEAM_DEPTH_MED = 5;
-    int BEAM_COMBO_MED = 18;
-    int BEAM_WIDTH_MANY = 70;
-    int BEAM_DEPTH_MANY = 4;
-    int BEAM_COMBO_MANY = 12;
-    int OPP_COMBO_LIMIT = 9;
-    int OPP_COMBO_LIMIT_SMALL = 12;
+    int BEAM_WIDTH_TINY = 120;   // was 100
+    int BEAM_DEPTH_TINY = 10;     // was 8
+    int BEAM_COMBO_TINY = 24;    // was 20
+    int BEAM_WIDTH_SMALL = 180;  // was 150
+    int BEAM_DEPTH_SMALL = 8;    // was 7
+    int BEAM_COMBO_SMALL = 28;   // was 24
+    int BEAM_WIDTH_FEW = 200;    // was 180
+    int BEAM_DEPTH_FEW = 7;      // was 6
+    int BEAM_COMBO_FEW = 32;     // was 27
+    int BEAM_WIDTH_MED = 150;    // was 120
+    int BEAM_DEPTH_MED = 6;      // was 5
+    int BEAM_COMBO_MED = 22;     // was 18
+    int BEAM_WIDTH_MANY = 100;    // was 70
+    int BEAM_DEPTH_MANY = 6;     // was 4
+    int BEAM_COMBO_MANY = 15;    // was 12
+    int OPP_COMBO_LIMIT = 10;
+    int OPP_COMBO_LIMIT_SMALL = 15;
 
     int REEVAL_TOP_K = 30;
 
     int    APPLE_RICH_THRESHOLD    = 12;
-    double APPLE_RICH_APPLE_MULT   = 3.0;
-    double APPLE_RICH_SPREAD_PEN   = 280.0;
-    double APPLE_RICH_SPREAD_DIST  = 7.0;
-    double APPLE_RICH_TERR_SCALE   = 0.25;
+    double APPLE_RICH_APPLE_MULT   = 2.5;    // reduced: was causing over-focus on growth
+    double APPLE_RICH_SPREAD_PEN   = 90.0;  // halved: was blocking nearest-apple eating
+    double APPLE_RICH_SPREAD_DIST  = 5.0;    // tightened threshold (was 7)
+    double APPLE_RICH_TERR_SCALE   = 0.55;   // raised: prevent evaluation plateau
     double APPLE_RICH_CLOSEST_MULT = 2.0;
 };
 
@@ -974,10 +974,11 @@ double snakeGravityRisk(const Snake& sn, const BitBoard& walls,
 
     if (minFall >= 100) return P.GRAVITY_DEATH;
     if (minFall == 0)   return 0;
-    if (minFall == 1)   return 0.0;
-    if (minFall == 2)   return -minFall * P.GRAVITY_RISK_LOW * 0.3;
-    if (minFall >= 3)   return -minFall * P.GRAVITY_RISK_HIGH;
-    return               -minFall * P.GRAVITY_RISK_LOW;
+    // Smooth quadratic ramp: penalty grows with fall distance, no cliff at minFall==1
+    double fallPenalty = (minFall <= 2)
+        ? -minFall * P.GRAVITY_RISK_LOW
+        : -minFall * P.GRAVITY_RISK_HIGH;
+    return fallPenalty;
 }
 
 double evaluate(const State& st, int myOwner, bool fast=false,
@@ -1548,7 +1549,7 @@ struct BeamNode {
     double score;
 };
 
-static const int MAX_BEAM_POOL = 300;
+static const int MAX_BEAM_POOL = 340;
 static BeamNode beamPoolA[MAX_BEAM_POOL];
 static BeamNode beamPoolB[MAX_BEAM_POOL];
 static int      beamIdxA[MAX_BEAM_POOL];
@@ -1603,15 +1604,6 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
                                initSt.walls, initBlocked);
                 bsPreferDir[mi] = d;
             }
-        }
-        if (gAppleRich) {
-            cerr << "  [AppleRich] assignments:";
-            for (int mi=0;mi<nMy;mi++) {
-                int si=myIdx[mi];
-                cerr<<" s"<<initSt.snakes[si].id<<"→a"<<bsAppleAssign[si]
-                    <<"(dir="<<(bsPreferDir[mi]>=0?DIR_NAMES[bsPreferDir[mi]]:"?")<<")";
-            }
-            cerr << endl;
         }
     }
     vector<vector<int>> combos = {{}};
@@ -1674,7 +1666,6 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
         vector<vector<int>> pruned; pruned.reserve(MAX_BEAM_POOL);
         for (int ci=0;ci<MAX_BEAM_POOL;ci++) pruned.push_back(combos[comboScores[ci].second]);
         combos=pruned;
-        cerr<<"  [comboPrune] "<<comboScores.size()<<"→"<<MAX_BEAM_POOL<<endl;
     }
     int oppComboLimit=smallMap?P.OPP_COMBO_LIMIT_SMALL:P.OPP_COMBO_LIMIT;
     vector<vector<int>> oppCombos = {{}};
@@ -1705,7 +1696,7 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
 
     bool useFullEval=(int)combos.size()*(int)oppCombos.size()<=300||smallMap;
     bool useMinimax =(int)oppCombos.size()>1 && elapsed(t0)<budgetMs-20;
-    constexpr int64_t TIMEOUT_MARGIN=5;
+    constexpr int64_t TIMEOUT_MARGIN=6;   // was 5 — extra 1ms for cout.flush()
 
     int greedyOppMoves[MAX_SNAKES]={};
     for (int oi=0;oi<nOpp;oi++)
@@ -1818,7 +1809,8 @@ vector<int> beamSearch(const State& initSt, int myOwner, int64_t budgetMs,
                         int ordered[4]; int nOrdered=0;
                         for (int j=0;j<nm;j++) if (mv[j]==prefD) { ordered[nOrdered++]=mv[j]; break; }
                         if (nOrdered==0 && nm>0) ordered[nOrdered++]=mv[0];
-                        for (int j=0;j<nm && nOrdered<2;j++) if (mv[j]!=prefD) ordered[nOrdered++]=mv[j];
+                        // Raised from 2→3: allows more coordinated multi-snake apple routing
+                        for (int j=0;j<nm && nOrdered<3;j++) if (mv[j]!=prefD) ordered[nOrdered++]=mv[j];
                         vector<vector<int>> next;
                         for (auto& c : cCombos)
                             for (int j=0;j<nOrdered;j++) { auto nc=c; nc.push_back(ordered[j]); next.push_back(nc); }
@@ -2046,7 +2038,6 @@ int main(int argc, char* argv[]) {
     cerr<<"[SnakeBody ring buffer, BODY_CAP="<<BODY_CAP<<"]"<<endl;
 
     while (true) {
-        auto t0=Clock::now();
         turn++;
 
         int nrg; cin>>nrg; cin.ignore();
@@ -2080,6 +2071,8 @@ int main(int argc, char* argv[]) {
             aliveIds.insert(sid);
         }
 
+        auto t0=Clock::now();   // TIMER STARTS HERE, after all I/O
+
         for (int i=0;i<totalSnakes;i++) {
             if (st.snakes[i].alive && st.snakes[i].owner==0) {
                 hist[st.snakes[i].id].push_back(st.snakes[i].head());
@@ -2091,20 +2084,26 @@ int main(int argc, char* argv[]) {
         }
 
         {
-            int currentMyScore=st.scoreFor(myId);
-            bool anyAte = (currentMyScore > previousMyScore);
-            if (anyAte)        { stallCounter=0; }
-            else if (turn>1)   { stallCounter++; }
-            previousMyScore=currentMyScore;
+            int currentMyScore = st.scoreFor(0);  // FIXED: my snakes are always owner=0
+            if (currentMyScore > previousMyScore) {
+                stallCounter = 0;            // ate something
+            } else if (currentMyScore < previousMyScore) {
+                stallCounter = 0;            // lost a head — volatile state, don't panic
+            } else if (turn > 1) {
+                stallCounter++;
+            }
+            previousMyScore = currentMyScore;
         }
 
+        // Urgency curve re-tuned for override threshold of 15 (was 30).
+        // Now urgency kicks in much earlier, giving beam search a chance to escape before override fires.
         double stallUrgency=1.0;
-        if      (stallCounter>=25) stallUrgency=2.5;
-        else if (stallCounter>=15) stallUrgency=2.0;
-        else if (stallCounter>=8)  stallUrgency=1.6;
-        else if (stallCounter>=3)  stallUrgency=1.3;
+        if      (stallCounter>=13) stallUrgency=2.0;  // was >=25 → 2.5 (override handles >=15)
+        else if (stallCounter>=8)  stallUrgency=1.7;  // was >=15 → 2.0
+        else if (stallCounter>=4)  stallUrgency=1.4;  // was >=8  → 1.6
+        else if (stallCounter>=2)  stallUrgency=1.2;  // was >=3  → 1.3
 
-        int64_t budget=(turn==1)?935:45;
+        int64_t budget=(turn==1)?980:47;  // 3ms margin for overhead
 
         cerr<<"\n=== T"<<turn<<" "<<W<<"x"<<H;
         int myS=st.scoreFor(0), opS=st.scoreFor(1), delta=myS-opS;
@@ -2115,33 +2114,61 @@ int main(int argc, char* argv[]) {
         if (delta<-2&&turnsLeft<=80) phase="AGGRESS";
         cerr<<" "<<phase<<" | STALL="<<stallCounter<<" (x"<<stallUrgency<<") ==="<<endl;
 
-        if (stallCounter > 30) {
-            cerr << "  [STALL OVERRIDE] pure BFS escape (stall=" << stallCounter << ")" << endl;
+        // Lower threshold: engage at 15 instead of 30
+        if (stallCounter > 15) {
+            cerr << "  [STALL OVERRIDE] escape (stall=" << stallCounter << ")" << endl;
             BitBoard blocked = st.walls | st.bodyBoardConst();
             string out;
+
             for (int i = 0; i < spp; i++) {
                 int sid = myIds[i];
                 if (!aliveIds.count(sid)) continue;
                 int si = id2idx[sid];
                 if (!st.snakes[si].alive) continue;
 
+                // Strategy 1: find closest reachable apple using weighted BFS
                 int dir = -1;
-                int bestDist = INT_MAX;
-                Coord bestApple(-1,-1);
-                for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
-                    if (!st.apples.tstC({x,y})) continue;
-                    int d = st.snakes[si].head().manhattan({x,y});
-                    if (d < bestDist) { bestDist = d; bestApple = {x,y}; }
+                {
+                    Coord h = st.snakes[si].head();
+                    int bestDist = INT_MAX;
+                    Coord bestApple(-1, -1);
+                    // Prefer apples that are supported (won't cause gravity fall to miss)
+                    for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+                        if (!st.apples.tstC({x,y})) continue;
+                        int md = h.manhattan({x,y});
+                        // Weight by height (lower apples harder to reach via gravity)
+                        int weighted = md * 2 + (H - 1 - y);
+                        if (weighted < bestDist) { bestDist = weighted; bestApple = {x,y}; }
+                    }
+                    if (bestApple.inBounds())
+                        dir = bfsDir(h, bestApple, st.walls, blocked);
                 }
-                if (bestApple.inBounds())
-                    dir = bfsDir(st.snakes[si].head(), bestApple, st.walls, blocked);
-                if (dir < 0) dir = greedyMove(st, si, &blocked);
-                if (dir < 0 || dir > 3) dir = 0;
+
+                // Strategy 2: fallback to greedy (which uses BFS internally)
+                if (dir < 0)
+                    dir = greedyMove(st, si, &blocked);
+
+                // Strategy 3: pick the move with most reachable cells (survival)
+                if (dir < 0) {
+                    int safeMoves[4]; int nm = validMovesSafe(st, si, blocked, safeMoves);
+                    int bestReach = -1;
+                    for (int mi = 0; mi < nm; mi++) {
+                        Coord nh = st.snakes[si].head() + DIRS[safeMoves[mi]];
+                        if (!nh.inBounds()) continue;
+                        BitBoard tmpBlk = blocked; tmpBlk.setC(st.snakes[si].head());
+                        int r = floodFillCount(nh, st.walls, tmpBlk);
+                        if (r > bestReach) { bestReach = r; dir = safeMoves[mi]; }
+                    }
+                }
+                if (dir < 0 || dir > 3) dir = st.snakes[si].facing();
+
                 if (!out.empty()) out += ";";
                 out += to_string(sid) + " " + DIR_NAMES[dir];
             }
+
+            cout << (out.empty() ? "WAIT" : out) << "\n";
+            cout.flush();
             cerr << "  => " << out << " (stall override, " << elapsed(t0) << "ms)" << endl;
-            cout << (out.empty() ? "WAIT" : out) << endl;
             continue;
         }
 
@@ -2158,7 +2185,11 @@ int main(int argc, char* argv[]) {
             if (!out.empty()) out+=";";
             out+=to_string(sid)+" "+DIR_NAMES[dir];
         }
+        // FLUSH STDOUT FIRST — judge clock stops here
+        cout<<(out.empty()?"WAIT":out)<<"\n";
+        cout.flush();
+        // Debug logging after — no timing impact
+        printMap(st);
         cerr<<"  => "<<out<<" ("<<elapsed(t0)<<"ms)"<<endl;
-        cout<<(out.empty()?"WAIT":out)<<endl;
     }
 }
