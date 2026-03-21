@@ -1,15 +1,25 @@
 import com.codingame.gameengine.runner.MultiplayerGameRunner;
 import com.codingame.gameengine.runner.simulate.GameResult;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Headless match runner for genetic training.
- * Runs a match between two bots and outputs scores to stdout.
+ * Runs a match between two bots and outputs scores and per-bot streams to stdout.
  *
  * Usage:
  *   java HeadlessRunner "command1" "command2" [seed] [leagueLevel]
  *
  * Output format (stdout):
  *   SCORES score0 score1
+ *   Standard Error Stream bot1:
+ *   <error output from bot 1>
+ *   Standard Output Stream bot1:
+ *   <output from bot 1>
+ *   Standard Error Stream bot2:
+ *   <error output from bot 2>
+ *   Standard Output Stream bot2:
+ *   <output from bot 2>
  */
 public class HeadlessRunner {
     public static void main(String[] args) {
@@ -60,10 +70,39 @@ public class HeadlessRunner {
             } else {
                 System.out.println("SCORES -1 -1");
             }
+
+            // Emit per-bot stderr/stdout in structured format
+            printBotStreams(result, "bot1", "0");
+            printBotStreams(result, "bot2", "1");
         } catch (Exception e) {
             System.err.println("Match error: " + e.getMessage());
             e.printStackTrace(System.err);
             System.out.println("SCORES -1 -1");
+        }
+    }
+
+    /**
+     * Emit the stderr and stdout sections for a single bot in the structured log format.
+     *
+     * @param result    the GameResult from the simulation
+     * @param botLabel  label used in headers, e.g. "bot1" or "bot2"
+     * @param playerKey key used in the GameResult maps, e.g. "0" or "1"
+     */
+    private static void printBotStreams(GameResult result, String botLabel, String playerKey) {
+        List<String> errors = (result.errors != null)
+                ? result.errors.getOrDefault(playerKey, Collections.emptyList())
+                : Collections.emptyList();
+        List<String> outputs = (result.outputs != null)
+                ? result.outputs.getOrDefault(playerKey, Collections.emptyList())
+                : Collections.emptyList();
+
+        System.out.println("Standard Error Stream " + botLabel + ":");
+        for (String line : errors) {
+            System.out.println(line);
+        }
+        System.out.println("Standard Output Stream " + botLabel + ":");
+        for (String line : outputs) {
+            System.out.println(line);
         }
     }
 }
